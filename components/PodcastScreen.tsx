@@ -19,6 +19,8 @@ export function PodcastScreen({ sessionId }: PodcastScreenProps) {
     startInvestigation,
     finishMainIntro,
     finishAccusationIntro,
+    proceedToAccusations,
+    returnToSubSelection,
   } = usePodcastSession(sessionId);
 
   const [audioPlaying, setAudioPlaying] = useState<string | null>(null);
@@ -84,19 +86,37 @@ export function PodcastScreen({ sessionId }: PodcastScreenProps) {
         (mb) => !session.selectedMainBranches.includes(mb._id)
       ) ?? [];
 
+    const totalMainBranches = mainBranches?.length ?? 0;
+    const maxSelectableMain = Math.floor(totalMainBranches / 2);
+    const canSelectMore = session.selectedMainBranches.length < maxSelectableMain;
+
     return (
       <View>
         <Text>MAIN_SELECTION State</Text>
-        <Text>Select a main branch:</Text>
-        {availableMainBranches.map((branch) => (
-          <Button
-            key={branch._id}
-            title={branch.title}
-            onPress={async () => {
-              await selectMainBranch(branch._id);
-            }}
-          />
-        ))}
+        <Text>Select a main branch: {session.selectedMainBranches.length} / {maxSelectableMain}</Text>
+        {canSelectMore ? (
+          <>
+            {availableMainBranches.map((branch) => (
+              <Button
+                key={branch._id}
+                title={branch.title}
+                onPress={async () => {
+                  await selectMainBranch(branch._id);
+                }}
+              />
+            ))}
+          </>
+        ) : (
+          <View>
+            <Text>Maximum main branches selected.</Text>
+            <Button
+              title="Go to Accusations"
+              onPress={async () => {
+                await proceedToAccusations();
+              }}
+            />
+          </View>
+        )}
       </View>
     );
   }
@@ -148,25 +168,27 @@ export function PodcastScreen({ sessionId }: PodcastScreenProps) {
         (sb) => !selectedSubsForMain.includes(sb._id)
       ) ?? [];
 
+    const mustSelect = 2; // User must always select exactly 2 sub branches
+
     return (
       <View>
         <Text>SUB_SELECTION State</Text>
-        <Text>Select sub branches:</Text>
-        {availableSubBranches.map((branch) => (
-          <Button
-            key={branch._id}
-            title={branch.title}
-            onPress={async () => {
-              await selectSubBranch(branch._id);
-            }}
-          />
-        ))}
-        <Button
-          title="Finish Sub Branch"
-          onPress={async () => {
-            await finishSubBranch();
-          }}
-        />
+        <Text>Select sub branches: {selectedSubsForMain.length} / {mustSelect} (required)</Text>
+        {selectedSubsForMain.length < mustSelect ? (
+          <>
+            {availableSubBranches.map((branch) => (
+              <Button
+                key={branch._id}
+                title={branch.title}
+                onPress={async () => {
+                  await selectSubBranch(branch._id);
+                }}
+              />
+            ))}
+          </>
+        ) : (
+          <Text>Completing selection...</Text>
+        )}
       </View>
     );
   }
@@ -195,9 +217,16 @@ export function PodcastScreen({ sessionId }: PodcastScreenProps) {
     useEffect(() => {
       if (audioFinished) {
         setAudioFinished(false);
-        finishSubBranch();
+        // Check if we have 2 sub branches selected
+        if (selectedSubsForMain.length === 2) {
+          // We have 2, finish and go back to main selection
+          finishSubBranch();
+        } else {
+          // We have less than 2, go back to SUB_SELECTION to select more
+          returnToSubSelection();
+        }
       }
-    }, [audioFinished, finishSubBranch]);
+    }, [audioFinished, selectedSubsForMain.length, finishSubBranch, returnToSubSelection]);
 
     return (
       <View>

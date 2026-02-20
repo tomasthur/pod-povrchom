@@ -9,12 +9,33 @@ import {
   View,
   Switch,
 } from 'react-native';
+import { ConvexProvider, ConvexReactClient } from 'convex/react';
 import type { Story, StoryNode } from './stories';
 import { stories } from './stories';
+// DEV ONLY - Debug screen for testing podcast engine
+import { DevPodcastEngineScreen } from './components/DevPodcastEngineScreen';
+
+// Initialize Convex client
+const CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL || 'https://warmhearted-snake-507.eu-west-1.convex.cloud';
+const convex = new ConvexReactClient(CONVEX_URL);
 
 type InteractionMode = 'touch' | 'voice';
 
 export default function App() {
+  // DEV ONLY - Toggle between old story app and dev podcast engine test
+  const [useDevEngine, setUseDevEngine] = useState(__DEV__ ? true : false);
+
+  if (__DEV__ && useDevEngine) {
+    return (
+      <ConvexProvider client={convex}>
+        <SafeAreaView style={styles.safeArea}>
+          <StatusBar style="light" />
+          <DevPodcastEngineScreen />
+        </SafeAreaView>
+      </ConvexProvider>
+    );
+  }
+
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
   const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('touch');

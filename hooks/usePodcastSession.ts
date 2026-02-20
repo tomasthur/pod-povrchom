@@ -17,6 +17,8 @@ export function usePodcastSession(sessionId: Id<"sessions"> | null | undefined) 
   const startInvestigationMutation = useMutation(api.sessions.startInvestigation);
   const finishMainIntroMutation = useMutation(api.sessions.finishMainIntro);
   const finishAccusationIntroMutation = useMutation(api.sessions.finishAccusationIntro);
+  const proceedToAccusationsMutation = useMutation(api.sessions.proceedToAccusations);
+  const returnToSubSelectionMutation = useMutation(api.sessions.returnToSubSelection);
 
   const selectMainBranch = async (mainBranchId: Id<"mainBranches">) => {
     if (!sessionId) throw new Error("Session ID is required");
@@ -70,6 +72,20 @@ export function usePodcastSession(sessionId: Id<"sessions"> | null | undefined) 
     });
   };
 
+  const proceedToAccusations = async () => {
+    if (!sessionId) throw new Error("Session ID is required");
+    return await proceedToAccusationsMutation({
+      sessionId,
+    });
+  };
+
+  const returnToSubSelection = async () => {
+    if (!sessionId) throw new Error("Session ID is required");
+    return await returnToSubSelectionMutation({
+      sessionId,
+    });
+  };
+
   return {
     session: session ?? null,
     selectMainBranch,
@@ -79,5 +95,7 @@ export function usePodcastSession(sessionId: Id<"sessions"> | null | undefined) 
     startInvestigation,
     finishMainIntro,
     finishAccusationIntro,
+    proceedToAccusations,
+    returnToSubSelection,
   };
 }

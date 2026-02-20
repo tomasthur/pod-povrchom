@@ -110,13 +110,8 @@ export const selectSubBranch = mutation({
     const key = currentMainBranchId;
     const currentSubs = session.selectedSubBranches[key] ?? [];
     
-    // Calculate max selectable sub branches dynamically from database
-    const mainBranchSubBranches = await ctx.db
-      .query("subBranches")
-      .withIndex("by_mainBranch", (q) => q.eq("mainBranchId", currentMainBranchId))
-      .collect();
-    const totalSubBranches = mainBranchSubBranches.length;
-    const maxSelectableSub = Math.floor(totalSubBranches / 2);
+    // User must always select exactly 2 sub branches per main branch
+    const maxSelectableSub = 2;
     
     if (currentSubs.length >= maxSelectableSub) {
       throw new Error(
@@ -239,6 +234,29 @@ export const finishMainIntro = mutation({
   },
 });
 
+export const returnToSubSelection = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (session === null) {
+      throw new Error("Session not found");
+    }
+    if (session.currentState !== "SUB_PLAYING") {
+      throw new Error("Session is not in SUB_PLAYING state");
+    }
+
+    await ctx.db.patch(args.sessionId, {
+      currentState: "SUB_SELECTION",
+    });
+
+    const updated = await ctx.db.get(args.sessionId);
+    if (updated === null) throw new Error("Session not found after update");
+    return updated;
+  },
+});
+
 export const finishAccusationIntro = mutation({
   args: {
     sessionId: v.id("sessions"),
@@ -254,6 +272,41 @@ export const finishAccusationIntro = mutation({
 
     await ctx.db.patch(args.sessionId, {
       currentState: "ACCUSATION_SELECTION",
+    });
+
+    const updated = await ctx.db.get(args.sessionId);
+    if (updated === null) throw new Error("Session not found after update");
+    return updated;
+  },
+});
+
+export const proceedToAccusations = mutation({
+  args: {
+    sessionId: v.id("sessions"),
+  },
+  handler: async (ctx, args) => {
+    const session = await ctx.db.get(args.sessionId);
+    if (session === null) {
+      throw new Error("Session not found");
+    }
+    if (session.currentState !== "MAIN_SELECTION") {
+      throw new Error("Session is not in MAIN_SELECTION state");
+    }
+
+    // Verify max main branches reached
+    const podcastMainBranches = await ctx.db
+      .query("mainBranches")
+      .withIndex("by_podcast", (q) => q.eq("podcastId", session.podcastId))
+      .collect();
+    const totalMainBranches = podcastMainBranches.length;
+    const maxSelectableMain = Math.floor(totalMainBranches / 2);
+
+    if (session.selectedMainBranches.length < maxSelectableMain) {
+      throw new Error("Not all main branches have been selected yet");
+    }
+
+    await ctx.db.patch(args.sessionId, {
+      currentState: "ACCUSATION_INTRO",
     });
 
     const updated = await ctx.db.get(args.sessionId);

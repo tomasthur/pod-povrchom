@@ -9,6 +9,7 @@
  */
 
 import type * as podcasts from "../podcasts.js";
+import type * as seed from "../seed.js";
 import type * as sessions from "../sessions.js";
 
 import type {
@@ -19,6 +20,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   podcasts: typeof podcasts;
+  seed: typeof seed;
   sessions: typeof sessions;
 }>;
 
