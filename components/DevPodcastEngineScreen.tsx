@@ -16,9 +16,6 @@ import {
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { usePodcastSession } from "../hooks/usePodcastSession";
-import type { Id } from "../convex/_generated/dataModel";
-
-const TEST_PODCAST_ID = "jd7dad9y0g1bk0f05pyvxcap5581h2c3" as Id<"podcasts">;
 
 function DevPodcastEngineScreenComponent() {
   const [sessionId, setSessionId] = useState<Id<"sessions"> | null>(null);
@@ -38,6 +35,9 @@ function DevPodcastEngineScreenComponent() {
     proceedToAccusations,
     returnToSubSelection,
   } = usePodcastSession(sessionId);
+
+  // Use the default podcast from Convex (first podcast in DB) for this dev screen.
+  const defaultPodcast = useQuery(api.podcasts.getDefaultPodcast, {});
 
   const podcast = useQuery(
     api.podcasts.getPodcast,
@@ -65,11 +65,11 @@ function DevPodcastEngineScreenComponent() {
     ? session?.selectedSubBranches[currentMainBranchId] ?? []
     : [];
 
-  // Initialize session
+  // Initialize session once we know which podcast to use
   useEffect(() => {
-    if (!sessionId && !isCreatingSession) {
+    if (!sessionId && !isCreatingSession && defaultPodcast?._id) {
       setIsCreatingSession(true);
-      createSessionMutation({ podcastId: TEST_PODCAST_ID })
+      createSessionMutation({ podcastId: defaultPodcast._id })
         .then((id) => {
           setSessionId(id);
           setIsCreatingSession(false);
@@ -80,7 +80,7 @@ function DevPodcastEngineScreenComponent() {
           setIsCreatingSession(false);
         });
     }
-  }, [sessionId, isCreatingSession, createSessionMutation]);
+  }, [sessionId, isCreatingSession, createSessionMutation, defaultPodcast?._id]);
 
   // Handle MAIN_INTRO - auto transition after 2s
   useEffect(() => {

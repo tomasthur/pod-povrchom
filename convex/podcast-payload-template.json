@@ -1,0 +1,54 @@
+{
+  "title": "Pod povrchom Ep. 01",
+  "description": "Prvá epizóda – doplň popis.",
+  "introAudioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/intro.mp3",
+  "accusationIntroAudioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/accusation/intro.mp3",
+  "resultCorrectAudioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/result/correct.mp3",
+  "resultWrongAudioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/result/wrong.mp3",
+  "mainBranches": [
+    {
+      "title": "Body",
+      "introAudioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/body/intro.mp3",
+      "choices": [
+        { "title": "Thread", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/body/choices/thread.mp3" },
+        { "title": "Wrist injury", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/body/choices/wrist_injury.mp3" },
+        { "title": "Last minutes", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/body/choices/last_minutes.mp3" }
+      ]
+    },
+    {
+      "title": "Digital footprint",
+      "introAudioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/digital_footprint/intro.mp3",
+      "choices": [
+        { "title": "Notebook", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/digital_footprint/choices/notebook.mp3" },
+        { "title": "Phone", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/digital_footprint/choices/phone.mp3" },
+        { "title": "Cloud", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/digital_footprint/choices/cloud.mp3" }
+      ]
+    },
+    {
+      "title": "External trace",
+      "introAudioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/external_trace/intro.mp3",
+      "choices": [
+        { "title": "Window", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/external_trace/intro.mp3" },
+        { "title": "Mud", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/external_trace/choices/mud.mp3" },
+        { "title": "Cigarette", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/external_trace/choices/cigarette.mp3" },
+        { "title": "Cameras", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/external_trace/choices/cameras.mp3" }
+      ]
+    },
+    {
+      "title": "Social circle",
+      "introAudioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/social_circle/intro.mp3",
+      "choices": [
+        { "title": "Partner", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/social_circle/choices/partner.mp3" },
+        { "title": "Halas", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/social_circle/choices/halas.mp3" },
+        { "title": "Neighbor", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/social_circle/choices/neighbor.mp3" },
+        { "title": "Colleague", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/main/social_circle/choices/colleague.mp3" }
+      ]
+    }
+  ],
+  "accusations": [
+    { "suspectName": "Partner", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/accusation/choices/partner.mp3", "isCorrect": false },
+    { "suspectName": "Halas", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/accusation/choices/halas.mp3", "isCorrect": false },
+    { "suspectName": "Neighbor", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/accusation/choices/neighbor.mp3", "isCorrect": false },
+    { "suspectName": "Colleague", "audioUrl": "https://poglhxsnajrocpniwstf.supabase.co/storage/v1/object/public/podcasts/pp_ep01/accusation/choices/partner.mp3", "isCorrect": true }
+  ]
+}

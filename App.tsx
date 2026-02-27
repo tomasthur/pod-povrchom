@@ -12,8 +12,8 @@ import {
 import { ConvexProvider, ConvexReactClient } from 'convex/react';
 import type { Story, StoryNode } from './stories';
 import { stories } from './stories';
-// DEV ONLY - Debug screen for testing podcast engine
-import { DevPodcastEngineScreen } from './components/DevPodcastEngineScreen';
+// DEV ONLY - Debug screen for testing podcast engine (expo-av audio)
+import { TestPodcastFlow } from './components/TestPodcastFlow';
 
 // Initialize Convex client
 const CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL || 'https://warmhearted-snake-507.eu-west-1.convex.cloud';
@@ -30,7 +30,7 @@ export default function App() {
       <ConvexProvider client={convex}>
         <SafeAreaView style={styles.safeArea}>
           <StatusBar style="light" />
-          <DevPodcastEngineScreen />
+          <TestPodcastFlow />
         </SafeAreaView>
       </ConvexProvider>
     );

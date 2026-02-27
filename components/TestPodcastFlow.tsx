@@ -14,15 +14,18 @@ import { api } from "../convex/_generated/api";
 import { usePodcastSession } from "../hooks/usePodcastSession";
 import type { Id } from "../convex/_generated/dataModel";
 
-const TEST_PODCAST_ID = "jd7dad9y0g1bk0f05pyvxcap5581h2c3" as Id<"podcasts">;
-
 export function TestPodcastFlow() {
   const [sessionId, setSessionId] = useState<Id<"sessions"> | null>(null);
+  const [selectedPodcastId, setSelectedPodcastId] = useState<
+    Id<"podcasts"> | null
+  >(null);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
+  // Guard to ensure we start audio only once per logical step/state
+  const audioPlayedKeyRef = useRef<string | null>(null);
 
   const createSessionMutation = useMutation(api.sessions.createSession);
   const {
@@ -37,6 +40,9 @@ export function TestPodcastFlow() {
     proceedToAccusations,
     returnToSubSelection,
   } = usePodcastSession(sessionId);
+
+  // Load all podcasts so user can choose which one to play
+  const podcasts = useQuery(api.podcasts.listPodcasts, {});
 
   const podcast = useQuery(
     api.podcasts.getPodcast,
@@ -64,8 +70,18 @@ export function TestPodcastFlow() {
     ? session?.selectedSubBranches[currentMainBranchId] ?? []
     : [];
 
-  // Cleanup audio on unmount
+  // Configure global audio mode once and cleanup on unmount
   useEffect(() => {
+    Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      staysActiveInBackground: false,
+      playsInSilentModeIOS: true,
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    }).catch((err) => {
+      console.warn("Failed to set audio mode", err);
+    });
+
     return () => {
       if (soundRef.current) {
         soundRef.current.unloadAsync().catch(console.error);
@@ -73,11 +89,16 @@ export function TestPodcastFlow() {
     };
   }, []);
 
-  // Initialize session
+  // Reset audio guard when state changes so new state can trigger its audio once
   useEffect(() => {
-    if (!sessionId && !isCreatingSession) {
+    audioPlayedKeyRef.current = null;
+  }, [session?.currentState, session?.currentMainBranchId]);
+
+  // Initialize session once we know which podcast to use
+  useEffect(() => {
+    if (!sessionId && !isCreatingSession && selectedPodcastId) {
       setIsCreatingSession(true);
-      createSessionMutation({ podcastId: TEST_PODCAST_ID })
+      createSessionMutation({ podcastId: selectedPodcastId })
         .then((id) => {
           setSessionId(id);
           setIsCreatingSession(false);
@@ -88,7 +109,12 @@ export function TestPodcastFlow() {
           setIsCreatingSession(false);
         });
     }
-  }, [sessionId, isCreatingSession, createSessionMutation]);
+  }, [
+    sessionId,
+    isCreatingSession,
+    createSessionMutation,
+    selectedPodcastId,
+  ]);
 
   // Helper function to play audio
   const playAudio = async (
@@ -150,11 +176,17 @@ export function TestPodcastFlow() {
   // Handle MAIN_INTRO - play audio and transition when finished
   useEffect(() => {
     if (session?.currentState === "MAIN_INTRO") {
+      const key = `MAIN_INTRO-${session.currentMainBranchId}`;
+      if (audioPlayedKeyRef.current === key) {
+        return;
+      }
+
       const currentMainBranch = mainBranches?.find(
         (mb) => mb._id === session.currentMainBranchId
       );
 
-      if (currentMainBranch && !isLoadingAudio && !isPlayingAudio) {
+      if (currentMainBranch) {
+        audioPlayedKeyRef.current = key;
         playAudio(
           currentMainBranch.introAudioUrl,
           () => {
@@ -179,14 +211,7 @@ export function TestPodcastFlow() {
         }
       };
     }
-  }, [
-    session?.currentState,
-    session?.currentMainBranchId,
-    mainBranches,
-    isLoadingAudio,
-    isPlayingAudio,
-    finishMainIntro,
-  ]);
+  }, [session?.currentState, session?.currentMainBranchId, mainBranches, finishMainIntro]);
 
   // Handle SUB_PLAYING - play audio and check if we need to select more or finish
   useEffect(() => {
@@ -196,7 +221,13 @@ export function TestPodcastFlow() {
         (sb) => sb._id === lastSelectedSub
       );
 
-      if (currentSubBranch && !isLoadingAudio && !isPlayingAudio) {
+      if (currentSubBranch) {
+        const key = `SUB_PLAYING-${lastSelectedSub}`;
+        if (audioPlayedKeyRef.current === key) {
+          return;
+        }
+        audioPlayedKeyRef.current = key;
+
         playAudio(
           currentSubBranch.audioUrl,
           () => {
@@ -241,8 +272,6 @@ export function TestPodcastFlow() {
     session?.currentState,
     selectedSubsForMain.length,
     subBranches,
-    isLoadingAudio,
-    isPlayingAudio,
     finishSubBranch,
     returnToSubSelection,
   ]);
@@ -250,9 +279,17 @@ export function TestPodcastFlow() {
   // Handle ACCUSATION_INTRO - play audio and transition when finished
   useEffect(() => {
     if (session?.currentState === "ACCUSATION_INTRO") {
-      if (!isLoadingAudio && !isPlayingAudio) {
-        // For now, use a placeholder URL - in real app this would come from session or podcast data
-        const accusationIntroUrl = "https://example.com/accusation-intro.mp3";
+      const key = "ACCUSATION_INTRO";
+      if (audioPlayedKeyRef.current === key) {
+        return;
+      }
+
+      // Prefer dedicated accusationIntroAudioUrl if available, otherwise reuse podcast intro
+      const accusationIntroUrl =
+        (podcast as any)?.accusationIntroAudioUrl ?? podcast?.introAudioUrl;
+
+      if (accusationIntroUrl) {
+        audioPlayedKeyRef.current = key;
         playAudio(
           accusationIntroUrl,
           () => {
@@ -269,15 +306,15 @@ export function TestPodcastFlow() {
             });
           }
         );
+      } else {
+        // No dedicated intro audio – just move on
+        finishAccusationIntro().catch((error) => {
+          console.error("Error finishing accusation intro:", error);
+          Alert.alert("Error", `Failed to transition: ${error.message}`);
+        });
       }
-
-      return () => {
-        if (soundRef.current) {
-          soundRef.current.unloadAsync().catch(console.error);
-        }
-      };
     }
-  }, [session?.currentState, isLoadingAudio, isPlayingAudio, finishAccusationIntro]);
+  }, [session?.currentState, podcast, finishAccusationIntro]);
 
   // Handle auto-finish when 2 sub branches are selected in SUB_SELECTION state
   useEffect(() => {
@@ -291,6 +328,40 @@ export function TestPodcastFlow() {
       });
     }
   }, [session?.currentState, selectedSubsForMain.length, finishSubBranch]);
+
+  // PODCAST SELECTION state (before any session exists)
+  if (!selectedPodcastId) {
+    return (
+      <ScrollView style={styles.container}>
+        <Text style={styles.title}>Vyber si podcast</Text>
+        {podcasts === undefined ? (
+          <View style={styles.center}>
+            <ActivityIndicator size="large" />
+            <Text>Načítavam podcasty...</Text>
+          </View>
+        ) : podcasts.length === 0 ? (
+          <View style={styles.center}>
+            <Text style={styles.error}>
+              Zatiaľ nemáš v Convexe žiadne podcasty.
+            </Text>
+          </View>
+        ) : (
+          <View>
+            {podcasts.map((p: any) => (
+              <View key={p._id} style={styles.buttonContainer}>
+                <Button
+                  title={p.title}
+                  onPress={() => {
+                    setSelectedPodcastId(p._id);
+                  }}
+                />
+              </View>
+            ))}
+          </View>
+        )}
+      </ScrollView>
+    );
+  }
 
   // INTRO state
   if (!session || session.currentState === "INTRO") {
@@ -322,12 +393,46 @@ export function TestPodcastFlow() {
           <View>
             <Text style={styles.sectionTitle}>Podcast: {podcast.title}</Text>
             <Text style={styles.description}>{podcast.description}</Text>
+            {isLoadingAudio && (
+              <View style={styles.center}>
+                <ActivityIndicator size="large" />
+                <Text>Loading intro audio...</Text>
+              </View>
+            )}
+            {isPlayingAudio && (
+              <View style={styles.center}>
+                <ActivityIndicator size="large" />
+                <Text>Playing intro audio...</Text>
+              </View>
+            )}
+            {audioError && (
+              <Text style={styles.error}>Audio Error: {audioError}</Text>
+            )}
             <View style={styles.buttonContainer}>
               <Button
                 title="Start Investigation"
                 onPress={async () => {
                   try {
-                    await startInvestigation();
+                    if (podcast.introAudioUrl && !isLoadingAudio && !isPlayingAudio) {
+                      // Play overall podcast intro first, then transition to MAIN_SELECTION
+                      await playAudio(
+                        podcast.introAudioUrl,
+                        () => {
+                          startInvestigation().catch((error) => {
+                            Alert.alert("Error", error.message);
+                          });
+                        },
+                        (error) => {
+                          console.error("Intro audio error:", error);
+                          // Even if intro audio fails, still allow investigation to start
+                          startInvestigation().catch((err) => {
+                            Alert.alert("Error", err.message);
+                          });
+                        }
+                      );
+                    } else {
+                      await startInvestigation();
+                    }
                   } catch (error: any) {
                     Alert.alert("Error", error.message);
                   }

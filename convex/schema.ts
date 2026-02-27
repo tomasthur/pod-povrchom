@@ -6,6 +6,10 @@ export default defineSchema({
     title: v.string(),
     description: v.string(),
     introAudioUrl: v.string(),
+    // Optional: from Supabase structure /accusation/intro.mp3, /result/correct.mp3, wrong.mp3
+    accusationIntroAudioUrl: v.optional(v.string()),
+    resultCorrectAudioUrl: v.optional(v.string()),
+    resultWrongAudioUrl: v.optional(v.string()),
   }),
 
   mainBranches: defineTable({

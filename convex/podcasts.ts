@@ -45,3 +45,13 @@ export const getAccusations = query({
       .collect();
   },
 });
+
+// List all podcasts (for home screen / selection)
+export const listPodcasts = query({
+  args: {},
+  handler: async (ctx) => {
+    const podcasts = await ctx.db.query("podcasts").collect();
+    return podcasts;
+  },
+});
+
