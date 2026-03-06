@@ -2,24 +2,477 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
-  Button,
   ScrollView,
   StyleSheet,
-  ActivityIndicator,
   Alert,
+  Pressable,
+  ActivityIndicator,
+  Animated,
+  Easing,
+  ImageBackground,
+  Dimensions,
 } from "react-native";
+import { BlurView } from "expo-blur";
 import { Audio } from "expo-av";
 import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { usePodcastSession } from "../hooks/usePodcastSession";
 import { useAutoVoiceRecording } from "../hooks/useAutoVoiceRecording";
+import { colors, fonts, spacing, radii, typography, shadows } from "../theme";
 import type { Id } from "../convex/_generated/dataModel";
+
+const BG_IMAGE = require("../assets/background.png");
+const { width: SCREEN_W } = Dimensions.get("window");
+
+// ─── Animation helpers ────────────────────────────────────────────
+
+function useFadeIn(delay = 0, duration = 500) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(24)).current;
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
+        }),
+        Animated.timing(translateY, {
+          toValue: 0,
+          duration,
+          useNativeDriver: true,
+          easing: Easing.out(Easing.cubic),
+        }),
+      ]).start();
+    }, delay);
+    return () => clearTimeout(t);
+  }, []);
+
+  return { opacity, transform: [{ translateY }] };
+}
+
+function usePulse(min = 0.3, max = 1, dur = 700) {
+  const a = useRef(new Animated.Value(max)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(a, { toValue: min, duration: dur, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+        Animated.timing(a, { toValue: max, duration: dur, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+      ])
+    ).start();
+  }, []);
+  return a;
+}
+
+function useScalePulse(min = 1, max = 1.18, dur = 900) {
+  const a = useRef(new Animated.Value(min)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(a, { toValue: max, duration: dur, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+        Animated.timing(a, { toValue: min, duration: dur, useNativeDriver: true, easing: Easing.inOut(Easing.ease) }),
+      ])
+    ).start();
+  }, []);
+  return a;
+}
+
+// ─── Screen wrapper with background ──────────────────────────────
+
+function Screen({ children, padded = true }: { children: React.ReactNode; padded?: boolean }) {
+  return (
+    <ImageBackground source={BG_IMAGE} style={s.bgImage} resizeMode="cover">
+      <View style={s.overlay} />
+      <ScrollView
+        style={s.screen}
+        contentContainerStyle={padded ? s.screenContent : undefined}
+        showsVerticalScrollIndicator={false}
+      >
+        {children}
+      </ScrollView>
+    </ImageBackground>
+  );
+}
+
+// ─── Reusable UI Components ───────────────────────────────────────
+
+function GlassCard({ children, style }: { children: React.ReactNode; style?: any }) {
+  return (
+    <View style={[s.glassCardOuter, style]}>
+      <BlurView intensity={30} tint="default" experimentalBlurMethod="dimezisBlurView" style={StyleSheet.absoluteFill} />
+      <View style={s.glassInner}>{children}</View>
+    </View>
+  );
+}
+
+function PrimaryButton({
+  title,
+  onPress,
+  disabled,
+  variant = "accent",
+}: {
+  title: string;
+  onPress: () => void;
+  disabled?: boolean;
+  variant?: "accent" | "amber" | "ghost";
+}) {
+  const bg =
+    variant === "accent" ? colors.accent
+      : variant === "amber" ? colors.amber
+        : colors.transparent;
+  const pressedBg =
+    variant === "accent" ? colors.accentDark
+      : variant === "amber" ? colors.amberDark
+        : "rgba(255,255,255,0.06)";
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      style={({ pressed }) => [
+        s.primaryBtn,
+        { backgroundColor: pressed ? pressedBg : bg },
+        variant === "ghost" && s.ghostBtn,
+        disabled && { opacity: 0.4 },
+      ]}
+    >
+      <Text
+        style={[
+          s.primaryBtnText,
+          variant === "ghost" && { color: colors.textSecondary },
+        ]}
+      >
+        {title}
+      </Text>
+    </Pressable>
+  );
+}
+
+function ChoiceCard({
+  letter,
+  title,
+  onPress,
+  index,
+}: {
+  letter: string;
+  title: string;
+  onPress: () => void;
+  index: number;
+}) {
+  const anim = useFadeIn(index * 100, 500);
+
+  return (
+    <Animated.View style={anim}>
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [
+          s.choiceCard,
+          pressed && s.choiceCardPressed,
+        ]}
+      >
+        <BlurView intensity={30} tint="default" experimentalBlurMethod="dimezisBlurView" style={StyleSheet.absoluteFill} />
+        <View style={s.choiceCardInner}>
+          <View style={s.choiceBadge}>
+            <Text style={s.choiceBadgeText}>{letter}</Text>
+          </View>
+          <Text style={s.choiceTitle} numberOfLines={2}>
+            {title}
+          </Text>
+          <Text style={s.choiceArrow}>&rsaquo;</Text>
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+function ScreenHeader({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle?: string;
+}) {
+  const anim = useFadeIn(0, 600);
+
+  return (
+    <Animated.View style={[s.header, anim]}>
+      <Text style={s.headerTitle}>{title}</Text>
+      {subtitle ? <Text style={s.headerSubtitle}>{subtitle}</Text> : null}
+      <View style={s.headerLine} />
+    </Animated.View>
+  );
+}
+
+function LoadingScreen({ message }: { message: string }) {
+  const pulse = usePulse(0.4, 1, 1000);
+  return (
+    <Screen>
+      <View style={s.loadingContainer}>
+        <Animated.View style={[s.loadingPulse, { opacity: pulse }]}>
+          <ActivityIndicator size="large" color={colors.accent} />
+        </Animated.View>
+        <Text style={s.loadingText}>{message}</Text>
+      </View>
+    </Screen>
+  );
+}
+
+function AudioPlayingIndicator({ title }: { title?: string }) {
+  const scale = useScalePulse();
+  const outerScale = useScalePulse(1, 1.4, 1200);
+  const outerOpacity = usePulse(0.1, 0.3, 1200);
+
+  return (
+    <View style={s.audioIndicator}>
+      <Animated.View style={[s.audioOuterRing, { transform: [{ scale: outerScale }], opacity: outerOpacity }]} />
+      <Animated.View style={[s.audioPulseRing, { transform: [{ scale }] }]} />
+      <View style={s.audioDot} />
+      <Text style={s.audioPlayingText}>{title ?? "Prehrava sa audio..."}</Text>
+    </View>
+  );
+}
+
+function PulsingDot() {
+  const opacity = usePulse();
+  return <Animated.View style={[s.recordingDot, { opacity }]} />;
+}
+
+function VoiceIndicator({
+  isRecording,
+  isProcessing,
+  lastError,
+  onStopEarly,
+}: {
+  isRecording: boolean;
+  isProcessing: boolean;
+  lastError: string | null;
+  onStopEarly: () => void;
+}) {
+  if (!isRecording && !isProcessing && !lastError) return null;
+
+  return (
+    <GlassCard style={s.voiceBar}>
+      {isRecording && (
+        <View style={s.voiceRow}>
+          <PulsingDot />
+          <Text style={s.voiceRecText}>
+            Nahravám... Povedz "moznost A" alebo "jedna"
+          </Text>
+          <Pressable onPress={onStopEarly} style={s.voiceStopBtn}>
+            <Text style={s.voiceStopBtnText}>Spracuj</Text>
+          </Pressable>
+        </View>
+      )}
+      {isProcessing && (
+        <View style={s.voiceRow}>
+          <ActivityIndicator size="small" color={colors.amber} />
+          <Text style={s.voiceProcText}>Rozpoznavam hlas...</Text>
+        </View>
+      )}
+      {lastError && !isRecording && !isProcessing && (
+        <Text style={s.voiceErrText}>{lastError}</Text>
+      )}
+    </GlassCard>
+  );
+}
+
+function ErrorBanner({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <View style={s.errorBanner}>
+      <Text style={s.errorBannerText}>{message}</Text>
+      {onRetry && (
+        <Pressable onPress={onRetry} style={s.errorRetryBtn}>
+          <Text style={s.errorRetryText}>Skus znova</Text>
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+function AnimatedPodcastCard({ podcast, index, onPress }: { podcast: any; index: number; onPress: () => void }) {
+  const cardAnim = useFadeIn(350 + index * 120, 500);
+  return (
+    <Animated.View style={cardAnim}>
+      <Pressable onPress={onPress} style={({ pressed }) => [s.podcastCard, pressed && s.podcastCardPressed]}>
+        <BlurView intensity={30} tint="default" experimentalBlurMethod="dimezisBlurView" style={StyleSheet.absoluteFill} />
+        <View style={s.podcastCardContent}>
+          <Text style={s.podcastCardTitle}>{podcast.title}</Text>
+          {podcast.description ? (
+            <Text style={s.podcastCardDesc} numberOfLines={2}>{podcast.description}</Text>
+          ) : null}
+          <View style={s.podcastCardBadgeRow}>
+            <View style={s.podcastCardBadge}>
+              <Text style={s.podcastCardBadgeText}>INTERAKTIVNY</Text>
+            </View>
+            <View style={[s.podcastCardBadge, { backgroundColor: "rgba(244,162,97,0.15)" }]}>
+              <Text style={[s.podcastCardBadgeText, { color: colors.amber }]}>KRIMI</Text>
+            </View>
+          </View>
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+function AnimatedModeToggle({
+  voiceMode,
+  setVoiceMode,
+}: {
+  voiceMode: "buttons" | "voice";
+  setVoiceMode: (m: "buttons" | "voice") => void;
+}) {
+  const slideAnim = useRef(new Animated.Value(voiceMode === "buttons" ? 0 : 1)).current;
+
+  useEffect(() => {
+    Animated.spring(slideAnim, {
+      toValue: voiceMode === "buttons" ? 0 : 1,
+      useNativeDriver: false,
+      tension: 68,
+      friction: 12,
+    }).start();
+  }, [voiceMode]);
+
+  const toggleWidth = SCREEN_W - spacing.xl * 2 - spacing.xs * 2 - 2;
+  const halfWidth = toggleWidth / 2;
+
+  const indicatorTranslateX = slideAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, halfWidth],
+  });
+
+  const buttonsTextColor = slideAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["rgba(255,255,255,1)", "rgba(255,255,255,0.4)"],
+  });
+
+  const voiceTextColor = slideAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["rgba(255,255,255,0.4)", "rgba(255,255,255,1)"],
+  });
+
+  return (
+    <View style={s.modeToggleOuter}>
+      <BlurView intensity={25} tint="default" experimentalBlurMethod="dimezisBlurView" style={StyleSheet.absoluteFill} />
+      <View style={s.modeToggleInner}>
+        <Animated.View
+          style={[
+            s.modeIndicator,
+            {
+              width: halfWidth,
+              transform: [{ translateX: indicatorTranslateX }],
+            },
+          ]}
+        />
+        <Pressable onPress={() => setVoiceMode("buttons")} style={s.modeOption}>
+          <Animated.Text style={[s.modeOptionText, { color: buttonsTextColor }]}>
+            Tlacidla
+          </Animated.Text>
+        </Pressable>
+        <Pressable onPress={() => setVoiceMode("voice")} style={s.modeOption}>
+          <Animated.Text style={[s.modeOptionText, { color: voiceTextColor }]}>
+            Hlas + Tlacidla
+          </Animated.Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+function PodcastSelectionScreen({
+  voiceMode,
+  setVoiceMode,
+  podcasts,
+  onSelectPodcast,
+}: {
+  voiceMode: "buttons" | "voice";
+  setVoiceMode: (m: "buttons" | "voice") => void;
+  podcasts: any[] | undefined;
+  onSelectPodcast: (id: any) => void;
+}) {
+  const heroAnim = useFadeIn(0, 700);
+  const modeAnim = useFadeIn(200, 500);
+
+  return (
+    <Screen>
+      <Animated.View style={heroAnim}>
+        <Text style={s.heroTagline}>INTERAKTIVNE KRIMI PODCASTY</Text>
+        <Text style={s.heroTitle}>Pod povrchom</Text>
+        <Text style={s.heroSubtitle}>Pribeh riadis ty. Kazde rozhodnutie meni vysledok.</Text>
+      </Animated.View>
+
+      <Animated.View style={[s.modeSelector, modeAnim]}>
+        <Text style={s.modeSelectorLabel}>REZIM OVLADANIA</Text>
+        <AnimatedModeToggle voiceMode={voiceMode} setVoiceMode={setVoiceMode} />
+      </Animated.View>
+
+      {podcasts === undefined ? (
+        <View style={s.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.accent} />
+          <Text style={s.loadingText}>Nacitavam podcasty...</Text>
+        </View>
+      ) : podcasts.length === 0 ? (
+        <View style={s.emptyState}>
+          <Text style={s.emptyStateText}>Zatial nemas ziadne podcasty.</Text>
+        </View>
+      ) : (
+        <View style={s.podcastList}>
+          {podcasts.map((p: any, idx: number) => (
+            <AnimatedPodcastCard key={p._id} podcast={p} index={idx} onPress={() => onSelectPodcast(p._id)} />
+          ))}
+        </View>
+      )}
+    </Screen>
+  );
+}
+
+function IntroScreenContent({
+  podcast,
+  isLoadingAudio,
+  isPlayingAudio,
+  audioError,
+  onStart,
+}: {
+  podcast: any;
+  isLoadingAudio: boolean;
+  isPlayingAudio: boolean;
+  audioError: string | null;
+  onStart: () => void;
+}) {
+  const cardAnim = useFadeIn(0, 600);
+  const btnAnim = useFadeIn(400, 500);
+
+  return (
+    <Screen>
+      <Animated.View style={cardAnim}>
+        <GlassCard style={s.introCard}>
+          <Text style={s.introLabel}>PODCAST</Text>
+          <Text style={s.introTitle}>{podcast.title}</Text>
+          {podcast.description ? <Text style={s.introDesc}>{podcast.description}</Text> : null}
+        </GlassCard>
+      </Animated.View>
+
+      {isLoadingAudio && <AudioPlayingIndicator title="Nacitavam intro..." />}
+      {isPlayingAudio && <AudioPlayingIndicator title="Pocuvaj intro..." />}
+      {audioError && <ErrorBanner message={`Chyba audia: ${audioError}`} />}
+
+      <Animated.View style={[s.introActions, btnAnim]}>
+        <PrimaryButton
+          title="ZACAT VYSETROVANIE"
+          disabled={isLoadingAudio || isPlayingAudio}
+          onPress={onStart}
+        />
+      </Animated.View>
+    </Screen>
+  );
+}
+
+// ─── Main Component ───────────────────────────────────────────────
 
 export function TestPodcastFlow() {
   const [sessionId, setSessionId] = useState<Id<"sessions"> | null>(null);
-  const [selectedPodcastId, setSelectedPodcastId] = useState<
-    Id<"podcasts"> | null
-  >(null);
+  const [selectedPodcastId, setSelectedPodcastId] = useState<Id<"podcasts"> | null>(null);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [isLoadingAudio, setIsLoadingAudio] = useState(false);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -31,16 +484,9 @@ export function TestPodcastFlow() {
 
   const createSessionMutation = useMutation(api.sessions.createSession);
   const {
-    session,
-    selectMainBranch,
-    selectSubBranch,
-    finishSubBranch,
-    selectAccusation,
-    startInvestigation,
-    finishMainIntro,
-    finishAccusationIntro,
-    proceedToAccusations,
-    returnToSubSelection,
+    session, selectMainBranch, selectSubBranch, finishSubBranch,
+    selectAccusation, startInvestigation, finishMainIntro,
+    finishAccusationIntro, proceedToAccusations, returnToSubSelection,
   } = usePodcastSession(sessionId);
 
   const podcasts = useQuery(api.podcasts.listPodcasts, {});
@@ -50,19 +496,14 @@ export function TestPodcastFlow() {
     api.podcasts.getPodcast,
     session?.podcastId ? { podcastId: session.podcastId } : "skip"
   );
-
   const mainBranches = useQuery(
     api.podcasts.getMainBranches,
     session?.podcastId ? { podcastId: session.podcastId } : "skip"
   );
-
   const subBranches = useQuery(
     api.podcasts.getSubBranches,
-    session?.currentMainBranchId
-      ? { mainBranchId: session.currentMainBranchId }
-      : "skip"
+    session?.currentMainBranchId ? { mainBranchId: session.currentMainBranchId } : "skip"
   );
-
   const accusations = useQuery(
     api.podcasts.getAccusations,
     session?.podcastId ? { podcastId: session.podcastId } : "skip"
@@ -73,44 +514,31 @@ export function TestPodcastFlow() {
     ? session?.selectedSubBranches[currentMainBranchId] ?? []
     : [];
 
-  // --- Derived data for voice ---
-
   const currentState = session?.currentState ?? "";
 
   const availableMainBranches =
     currentState === "MAIN_SELECTION"
-      ? mainBranches?.filter(
-          (mb) => !session!.selectedMainBranches.includes(mb._id)
-        ) ?? []
+      ? mainBranches?.filter((mb) => !session!.selectedMainBranches.includes(mb._id)) ?? []
       : [];
 
   const availableSubBranches =
     currentState === "SUB_SELECTION"
-      ? subBranches?.filter(
-          (sb) => !selectedSubsForMain.includes(sb._id)
-        ) ?? []
+      ? subBranches?.filter((sb) => !selectedSubsForMain.includes(sb._id)) ?? []
       : [];
 
   const currentAccusations =
     currentState === "ACCUSATION_SELECTION" ? accusations ?? [] : [];
 
   const voiceNumOptions =
-    currentState === "MAIN_SELECTION"
-      ? availableMainBranches.length
-      : currentState === "SUB_SELECTION"
-      ? availableSubBranches.length
-      : currentState === "ACCUSATION_SELECTION"
-      ? currentAccusations.length
-      : 0;
+    currentState === "MAIN_SELECTION" ? availableMainBranches.length
+      : currentState === "SUB_SELECTION" ? availableSubBranches.length
+        : currentState === "ACCUSATION_SELECTION" ? currentAccusations.length
+          : 0;
 
   const voiceActive =
-    voiceMode === "voice" &&
-    voiceNumOptions > 0 &&
-    ["MAIN_SELECTION", "SUB_SELECTION", "ACCUSATION_SELECTION"].includes(
-      currentState
-    ) &&
-    !isPlayingAudio &&
-    !isLoadingAudio;
+    voiceMode === "voice" && voiceNumOptions > 0 &&
+    ["MAIN_SELECTION", "SUB_SELECTION", "ACCUSATION_SELECTION"].includes(currentState) &&
+    !isPlayingAudio && !isLoadingAudio;
 
   const handleVoiceChoice = useCallback(
     async (index: number) => {
@@ -127,77 +555,25 @@ export function TestPodcastFlow() {
           if (accusation) {
             const result = await selectAccusation(accusation._id);
             if (result.audioUrl) {
-              playAudio(
-                result.audioUrl,
-                () => {
-                  Alert.alert(
-                    "Result",
-                    `Is Correct: ${result.isCorrect ? "Yes ✅" : "No ❌"}`,
-                    [
-                      {
-                        text: "OK",
-                        onPress: () => {
-                          setSessionId(null);
-                          setIsCreatingSession(false);
-                        },
-                      },
-                    ]
-                  );
-                },
-                () => {
-                  Alert.alert(
-                    "Result",
-                    `Is Correct: ${result.isCorrect ? "Yes ✅" : "No ❌"}`,
-                    [
-                      {
-                        text: "OK",
-                        onPress: () => {
-                          setSessionId(null);
-                          setIsCreatingSession(false);
-                        },
-                      },
-                    ]
-                  );
-                }
-              );
+              playAudio(result.audioUrl, () => showResult(result.isCorrect), () => showResult(result.isCorrect));
             } else {
-              Alert.alert(
-                "Result",
-                `Is Correct: ${result.isCorrect ? "Yes ✅" : "No ❌"}`,
-                [
-                  {
-                    text: "OK",
-                    onPress: () => {
-                      setSessionId(null);
-                      setIsCreatingSession(false);
-                    },
-                  },
-                ]
-              );
+              showResult(result.isCorrect);
             }
           }
         }
       } catch (error: any) {
-        Alert.alert("Error", error.message);
+        Alert.alert("Chyba", error.message);
       }
     },
-    [
-      session?.currentState,
-      availableMainBranches,
-      availableSubBranches,
-      currentAccusations,
-      selectMainBranch,
-      selectSubBranch,
-      selectAccusation,
-    ]
+    [session?.currentState, availableMainBranches, availableSubBranches, currentAccusations, selectMainBranch, selectSubBranch, selectAccusation]
   );
 
   const handleVoiceError = useCallback((transcript: string) => {
     Alert.alert(
-      "Nerozpoznal som výber",
+      "Nerozpoznal som vyber",
       transcript
-        ? `Rozpoznaný text: "${transcript}"\n\nPovedz napr. "A", "jedna" alebo "možnosť 1".`
-        : "Nerozpoznal som nič. Povedz jasne \"A\", \"B\" alebo klikni na tlačidlo."
+        ? `Rozpoznany text: "${transcript}"\n\nPovedz napr. "moznost A" alebo "jedna".`
+        : 'Nerozpoznal som nic. Povedz jasne "moznost A", "B" alebo klikni na tlacidlo.'
     );
   }, []);
 
@@ -209,899 +585,744 @@ export function TestPodcastFlow() {
     onError: handleVoiceError,
   });
 
-  // --- Audio setup ---
+  const showResult = (isCorrect: boolean) => {
+    Alert.alert(
+      isCorrect ? "Spravne!" : "Nespravne",
+      isCorrect ? "Gratulujeme, tvoj tip bol spravny!" : "Bohuzial, tentokrat to nevyslo.",
+      [{ text: "OK", onPress: () => { setSessionId(null); setIsCreatingSession(false); } }]
+    );
+  };
+
+  // ─── Audio ────────────────────────────
 
   useEffect(() => {
     Audio.setAudioModeAsync({
-      allowsRecordingIOS: false,
-      staysActiveInBackground: false,
-      playsInSilentModeIOS: true,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
-    }).catch((err) => {
-      console.warn("Failed to set audio mode", err);
-    });
-
-    return () => {
-      if (soundRef.current) {
-        soundRef.current.unloadAsync().catch(console.error);
-      }
-    };
+      allowsRecordingIOS: false, staysActiveInBackground: false,
+      playsInSilentModeIOS: true, shouldDuckAndroid: true, playThroughEarpieceAndroid: false,
+    }).catch((err) => console.warn("Failed to set audio mode", err));
+    return () => { soundRef.current?.unloadAsync().catch(console.error); };
   }, []);
 
-  useEffect(() => {
-    audioPlayedKeyRef.current = null;
-  }, [session?.currentState, session?.currentMainBranchId]);
+  useEffect(() => { audioPlayedKeyRef.current = null; }, [session?.currentState, session?.currentMainBranchId]);
 
-  // --- Audio playback helper ---
-
-  const playAudio = async (
-    audioUrl: string,
-    onFinished: () => void,
-    onError?: (error: Error) => void
-  ) => {
+  const playAudio = async (audioUrl: string, onFinished: () => void, onError?: (error: Error) => void) => {
     try {
-      setIsLoadingAudio(true);
-      setAudioError(null);
-
-      if (soundRef.current) {
-        await soundRef.current.unloadAsync();
-      }
-
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: audioUrl },
-        { shouldPlay: true }
-      );
+      setIsLoadingAudio(true); setAudioError(null);
+      if (soundRef.current) await soundRef.current.unloadAsync();
+      const { sound } = await Audio.Sound.createAsync({ uri: audioUrl }, { shouldPlay: true });
       soundRef.current = sound;
-
-      setIsLoadingAudio(false);
-      setIsPlayingAudio(true);
-
+      setIsLoadingAudio(false); setIsPlayingAudio(true);
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded) {
-          if (status.didJustFinish) {
-            setIsPlayingAudio(false);
-            onFinished();
-          }
+          if (status.didJustFinish) { setIsPlayingAudio(false); onFinished(); }
         } else if (status.error) {
-          setIsLoadingAudio(false);
-          setIsPlayingAudio(false);
-          const error = new Error(status.error || "Audio playback error");
-          setAudioError(error.message);
-          if (onError) {
-            onError(error);
-          } else {
-            Alert.alert("Audio Error", error.message);
-          }
+          setIsLoadingAudio(false); setIsPlayingAudio(false);
+          const err = new Error(status.error || "Audio playback error");
+          setAudioError(err.message);
+          onError ? onError(err) : Alert.alert("Chyba audia", err.message);
         }
       });
     } catch (error: any) {
-      setIsLoadingAudio(false);
-      setIsPlayingAudio(false);
-      const errorMessage = error.message || "Failed to load audio";
-      setAudioError(errorMessage);
-      if (onError) {
-        onError(error);
-      } else {
-        Alert.alert("Audio Error", errorMessage);
-      }
+      setIsLoadingAudio(false); setIsPlayingAudio(false);
+      const msg = error.message || "Failed to load audio";
+      setAudioError(msg);
+      onError ? onError(error) : Alert.alert("Chyba audia", msg);
     }
   };
 
-  // --- Auto-play effects for non-selection states ---
+  // ─── Auto-play effects ────────────────
 
   useEffect(() => {
     if (session?.currentState === "MAIN_INTRO") {
       const key = `MAIN_INTRO-${session.currentMainBranchId}`;
       if (audioPlayedKeyRef.current === key) return;
-
-      const currentMainBranch = mainBranches?.find(
-        (mb) => mb._id === session.currentMainBranchId
-      );
-
-      if (currentMainBranch) {
+      const mb = mainBranches?.find((m) => m._id === session.currentMainBranchId);
+      if (mb) {
         audioPlayedKeyRef.current = key;
-        playAudio(
-          currentMainBranch.introAudioUrl,
-          () => {
-            finishMainIntro().catch((error) => {
-              console.error("Error finishing main intro:", error);
-              Alert.alert("Error", `Failed to transition: ${error.message}`);
-            });
-          },
-          (error) => {
-            console.error("Audio playback error:", error);
-            finishMainIntro().catch((err) => {
-              console.error("Error finishing main intro:", err);
-            });
-          }
+        playAudio(mb.introAudioUrl,
+          () => { finishMainIntro().catch((e) => Alert.alert("Chyba", e.message)); },
+          () => { finishMainIntro().catch(console.error); }
         );
       }
-
-      return () => {
-        if (soundRef.current) {
-          soundRef.current.unloadAsync().catch(console.error);
-        }
-      };
+      return () => { soundRef.current?.unloadAsync().catch(console.error); };
     }
   }, [session?.currentState, session?.currentMainBranchId, mainBranches, finishMainIntro]);
 
   useEffect(() => {
     if (session?.currentState === "SUB_PLAYING") {
-      const lastSelectedSub =
-        selectedSubsForMain[selectedSubsForMain.length - 1];
-      const currentSubBranch = subBranches?.find(
-        (sb) => sb._id === lastSelectedSub
-      );
-
-      if (currentSubBranch) {
-        const key = `SUB_PLAYING-${lastSelectedSub}`;
+      const lastSub = selectedSubsForMain[selectedSubsForMain.length - 1];
+      const sb = subBranches?.find((s) => s._id === lastSub);
+      if (sb) {
+        const key = `SUB_PLAYING-${lastSub}`;
         if (audioPlayedKeyRef.current === key) return;
         audioPlayedKeyRef.current = key;
-
-        playAudio(
-          currentSubBranch.audioUrl,
+        playAudio(sb.audioUrl,
           () => {
-            if (selectedSubsForMain.length === 2) {
-              finishSubBranch().catch((error) => {
-                console.error("Error finishing sub branch:", error);
-                Alert.alert("Error", `Failed to finish: ${error.message}`);
-              });
-            } else {
-              returnToSubSelection().catch((error) => {
-                console.error("Error returning to sub selection:", error);
-                Alert.alert("Error", `Failed to return: ${error.message}`);
-              });
-            }
+            if (selectedSubsForMain.length === 2) finishSubBranch().catch((e) => Alert.alert("Chyba", e.message));
+            else returnToSubSelection().catch((e) => Alert.alert("Chyba", e.message));
           },
-          (error) => {
-            console.error("Audio playback error:", error);
-            if (selectedSubsForMain.length === 2) {
-              finishSubBranch().catch((err) => {
-                console.error("Error finishing sub branch:", err);
-              });
-            } else {
-              returnToSubSelection().catch((err) => {
-                console.error("Error returning to sub selection:", err);
-              });
-            }
+          () => {
+            if (selectedSubsForMain.length === 2) finishSubBranch().catch(console.error);
+            else returnToSubSelection().catch(console.error);
           }
         );
       }
-
-      return () => {
-        if (soundRef.current) {
-          soundRef.current.unloadAsync().catch(console.error);
-        }
-      };
+      return () => { soundRef.current?.unloadAsync().catch(console.error); };
     }
-  }, [
-    session?.currentState,
-    selectedSubsForMain.length,
-    subBranches,
-    finishSubBranch,
-    returnToSubSelection,
-  ]);
+  }, [session?.currentState, selectedSubsForMain.length, subBranches, finishSubBranch, returnToSubSelection]);
 
   useEffect(() => {
     if (session?.currentState === "ACCUSATION_INTRO") {
       const key = "ACCUSATION_INTRO";
       if (audioPlayedKeyRef.current === key) return;
-
-      const accusationIntroUrl =
-        (podcast as any)?.accusationIntroAudioUrl ?? podcast?.introAudioUrl;
-
-      if (accusationIntroUrl) {
+      const url = (podcast as any)?.accusationIntroAudioUrl ?? podcast?.introAudioUrl;
+      if (url) {
         audioPlayedKeyRef.current = key;
-        playAudio(
-          accusationIntroUrl,
-          () => {
-            finishAccusationIntro().catch((error) => {
-              console.error("Error finishing accusation intro:", error);
-              Alert.alert("Error", `Failed to transition: ${error.message}`);
-            });
-          },
-          (error) => {
-            console.error("Audio playback error:", error);
-            finishAccusationIntro().catch((err) => {
-              console.error("Error finishing accusation intro:", err);
-            });
-          }
+        playAudio(url,
+          () => { finishAccusationIntro().catch((e) => Alert.alert("Chyba", e.message)); },
+          () => { finishAccusationIntro().catch(console.error); }
         );
       } else {
-        finishAccusationIntro().catch((error) => {
-          console.error("Error finishing accusation intro:", error);
-          Alert.alert("Error", `Failed to transition: ${error.message}`);
-        });
+        finishAccusationIntro().catch((e) => Alert.alert("Chyba", e.message));
       }
     }
   }, [session?.currentState, podcast, finishAccusationIntro]);
 
   useEffect(() => {
-    if (
-      session?.currentState === "SUB_SELECTION" &&
-      selectedSubsForMain.length === 2
-    ) {
-      finishSubBranch().catch((error) => {
-        console.error("Error finishing sub branch:", error);
-        Alert.alert("Error", `Failed to finish: ${error.message}`);
-      });
+    if (session?.currentState === "SUB_SELECTION" && selectedSubsForMain.length === 2) {
+      finishSubBranch().catch((e) => Alert.alert("Chyba", e.message));
     }
   }, [session?.currentState, selectedSubsForMain.length, finishSubBranch]);
 
-  // Auto-proceed to accusations when max main branches selected
   useEffect(() => {
-    if (session?.currentState !== "MAIN_SELECTION") {
-      proceedingRef.current = false;
-      return;
-    }
+    if (session?.currentState !== "MAIN_SELECTION") { proceedingRef.current = false; return; }
     const total = mainBranches?.length ?? 0;
     if (total === 0) return;
     const max = Math.floor(total / 2);
     if (session.selectedMainBranches.length >= max && !proceedingRef.current) {
       proceedingRef.current = true;
-      proceedToAccusations().catch((error) => {
-        proceedingRef.current = false;
-        console.error("Error proceeding to accusations:", error);
-        Alert.alert("Error", `Failed to proceed: ${error.message}`);
-      });
+      proceedToAccusations().catch((e) => { proceedingRef.current = false; Alert.alert("Chyba", e.message); });
     }
   }, [session?.currentState, session?.selectedMainBranches.length, mainBranches?.length, proceedToAccusations]);
-
-  // --- Session creation ---
 
   useEffect(() => {
     if (!sessionId && !isCreatingSession && selectedPodcastId) {
       setIsCreatingSession(true);
       createSessionMutation({ podcastId: selectedPodcastId })
-        .then((id) => {
-          setSessionId(id);
-          setIsCreatingSession(false);
-        })
-        .catch((error) => {
-          console.error("Failed to create session:", error);
-          Alert.alert("Error", `Failed to create session: ${error.message}`);
-          setIsCreatingSession(false);
-        });
+        .then((id) => { setSessionId(id); setIsCreatingSession(false); })
+        .catch((e) => { Alert.alert("Chyba", e.message); setIsCreatingSession(false); });
     }
   }, [sessionId, isCreatingSession, createSessionMutation, selectedPodcastId]);
 
-  // --- Voice status indicator (reusable) ---
-
-  const VoiceStatus = () => {
-    if (voiceMode !== "voice") return null;
-    if (!voice.isRecording && !voice.isProcessing && !voice.lastError)
-      return null;
-
-    return (
-      <View style={styles.voiceStatus}>
-        <Text
-          style={[
-            styles.voiceStatusText,
-            voice.lastError && styles.voiceStatusError,
-          ]}
-        >
-          {voice.isProcessing
-            ? "⏳ Spracovávam hlas..."
-            : voice.isRecording
-            ? "🎙 Nahrávam... Povedz A, B alebo jedna, dva"
-            : voice.lastError}
-        </Text>
-        {voice.isRecording && (
-          <Button
-            title="Spracuj teraz"
-            onPress={voice.stopAndRecognize}
-          />
-        )}
-      </View>
-    );
-  };
-
-  // ===== RENDER =====
+  // ═══ RENDER ═════════════════════════════════
 
   // PODCAST SELECTION
   if (!selectedPodcastId) {
     return (
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}>Vyber si podcast</Text>
-        <Text style={styles.info}>
-          Režim ovládania:{" "}
-          {voiceMode === "voice" ? "Hlas + tlačidlá" : "Len tlačidlá"}
-        </Text>
-        <View style={styles.buttonContainer}>
-          <Button
-            title="Len tlačidlá"
-            onPress={() => setVoiceMode("buttons")}
-          />
-        </View>
-        <View style={styles.buttonContainer}>
-          <Button
-            title="Hlas + tlačidlá"
-            onPress={() => setVoiceMode("voice")}
-          />
-        </View>
-        {podcasts === undefined ? (
-          <View style={styles.center}>
-            <ActivityIndicator size="large" />
-            <Text>Načítavam podcasty...</Text>
-          </View>
-        ) : podcasts.length === 0 ? (
-          <View style={styles.center}>
-            <Text style={styles.error}>
-              Zatiaľ nemáš v Convexe žiadne podcasty.
-            </Text>
-          </View>
-        ) : (
-          <View>
-            {podcasts.map((p: any) => (
-              <View key={p._id} style={styles.buttonContainer}>
-                <Button
-                  title={p.title}
-                  onPress={() => setSelectedPodcastId(p._id)}
-                />
-              </View>
-            ))}
-          </View>
-        )}
-      </ScrollView>
+      <PodcastSelectionScreen
+        voiceMode={voiceMode}
+        setVoiceMode={setVoiceMode}
+        podcasts={podcasts}
+        onSelectPodcast={setSelectedPodcastId}
+      />
     );
   }
 
   // INTRO
   if (!session || session.currentState === "INTRO") {
+    if (isCreatingSession || podcast === undefined) return <LoadingScreen message="Pripravujem podcast..." />;
+    if (podcast === null) return (
+      <Screen>
+        <ErrorBanner message="Nepodarilo sa nacitat podcast" onRetry={() => { setSessionId(null); setIsCreatingSession(false); }} />
+      </Screen>
+    );
+
     return (
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}>Test Podcast Flow</Text>
-        {isCreatingSession ? (
-          <View style={styles.center}>
-            <ActivityIndicator size="large" />
-            <Text>Creating session...</Text>
-          </View>
-        ) : podcast === undefined ? (
-          <View style={styles.center}>
-            <ActivityIndicator size="large" />
-            <Text>Loading podcast...</Text>
-          </View>
-        ) : podcast === null ? (
-          <View>
-            <Text style={styles.error}>Failed to load podcast</Text>
-            <Button
-              title="Retry"
-              onPress={() => {
-                setSessionId(null);
-                setIsCreatingSession(false);
-              }}
-            />
-          </View>
-        ) : (
-          <View>
-            <Text style={styles.sectionTitle}>Podcast: {podcast.title}</Text>
-            <Text style={styles.description}>{podcast.description}</Text>
-            {isLoadingAudio && (
-              <View style={styles.center}>
-                <ActivityIndicator size="large" />
-                <Text>Loading intro audio...</Text>
-              </View>
-            )}
-            {isPlayingAudio && (
-              <View style={styles.center}>
-                <ActivityIndicator size="large" />
-                <Text>Playing intro audio...</Text>
-              </View>
-            )}
-            {audioError && (
-              <Text style={styles.error}>Audio Error: {audioError}</Text>
-            )}
-            <View style={styles.buttonContainer}>
-              <Button
-                title="Start Investigation"
-                onPress={async () => {
-                  try {
-                    if (
-                      podcast.introAudioUrl &&
-                      !isLoadingAudio &&
-                      !isPlayingAudio
-                    ) {
-                      await playAudio(
-                        podcast.introAudioUrl,
-                        () => {
-                          startInvestigation().catch((error) => {
-                            Alert.alert("Error", error.message);
-                          });
-                        },
-                        (error) => {
-                          console.error("Intro audio error:", error);
-                          startInvestigation().catch((err) => {
-                            Alert.alert("Error", err.message);
-                          });
-                        }
-                      );
-                    } else {
-                      await startInvestigation();
-                    }
-                  } catch (error: any) {
-                    Alert.alert("Error", error.message);
-                  }
-                }}
-              />
-            </View>
-          </View>
-        )}
-      </ScrollView>
+      <IntroScreenContent
+        podcast={podcast}
+        isLoadingAudio={isLoadingAudio}
+        isPlayingAudio={isPlayingAudio}
+        audioError={audioError}
+        onStart={async () => {
+          try {
+            if (podcast.introAudioUrl && !isLoadingAudio && !isPlayingAudio) {
+              await playAudio(podcast.introAudioUrl,
+                () => { startInvestigation().catch((e: any) => Alert.alert("Chyba", e.message)); },
+                () => { startInvestigation().catch((e: any) => Alert.alert("Chyba", e.message)); }
+              );
+            } else {
+              await startInvestigation();
+            }
+          } catch (error: any) {
+            Alert.alert("Chyba", error.message);
+          }
+        }}
+      />
     );
   }
 
   // MAIN_SELECTION
   if (session.currentState === "MAIN_SELECTION") {
-    const totalMainBranches = mainBranches?.length ?? 0;
-    const maxSelectableMain = Math.floor(totalMainBranches / 2);
-    const canSelectMore =
-      session.selectedMainBranches.length < maxSelectableMain;
+    const total = mainBranches?.length ?? 0;
+    const max = Math.floor(total / 2);
+    const canSelectMore = session.selectedMainBranches.length < max;
 
-    if (mainBranches === undefined) {
-      return (
-        <ScrollView style={styles.container}>
-          <View style={styles.center}>
-            <ActivityIndicator size="large" />
-            <Text>Loading main branches...</Text>
-          </View>
-        </ScrollView>
-      );
-    }
+    if (mainBranches === undefined) return <LoadingScreen message="Nacitavam stopy..." />;
 
     return (
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}>Select Main Branch</Text>
-        <Text style={styles.info}>
-          Selected: {session.selectedMainBranches.length} / {maxSelectableMain}
-        </Text>
-        <VoiceStatus />
+      <Screen>
+        <ScreenHeader title="Vyber stopu" subtitle={`Vybrane: ${session.selectedMainBranches.length} / ${max}`} />
+        <VoiceIndicator isRecording={voice.isRecording} isProcessing={voice.isProcessing} lastError={voice.lastError} onStopEarly={voice.stopAndRecognize} />
         {canSelectMore ? (
-          <>
-            <Text style={styles.sectionTitle}>Available Main Branches:</Text>
+          <View style={s.choicesContainer}>
             {availableMainBranches.map((branch, idx) => (
-              <View key={branch._id} style={styles.buttonContainer}>
-                <Button
-                  title={`${String.fromCharCode(65 + idx)}: ${branch.title}`}
-                  onPress={async () => {
-                    try {
-                      await selectMainBranch(branch._id);
-                    } catch (error: any) {
-                      Alert.alert("Error", error.message);
-                    }
-                  }}
-                />
-              </View>
+              <ChoiceCard key={branch._id} letter={String.fromCharCode(65 + idx)} title={branch.title} index={idx}
+                onPress={async () => { try { await selectMainBranch(branch._id); } catch (e: any) { Alert.alert("Chyba", e.message); } }} />
             ))}
-          </>
+          </View>
         ) : (
-          <View style={styles.center}>
-            <ActivityIndicator size="large" />
-            <Text>Prechádzam na obvinenia...</Text>
+          <View style={s.loadingContainer}>
+            <ActivityIndicator size="large" color={colors.accent} />
+            <Text style={s.loadingText}>Prechadzam na obvinenia...</Text>
           </View>
         )}
-      </ScrollView>
+      </Screen>
     );
   }
 
   // MAIN_INTRO
   if (session.currentState === "MAIN_INTRO") {
-    const currentMainBranch = mainBranches?.find(
-      (mb) => mb._id === session.currentMainBranchId
-    );
-
-    if (mainBranches === undefined) {
-      return (
-        <ScrollView style={styles.container}>
-          <View style={styles.center}>
-            <ActivityIndicator size="large" />
-            <Text>Loading main branch...</Text>
-          </View>
-        </ScrollView>
-      );
-    }
-
+    const mb = mainBranches?.find((m) => m._id === session.currentMainBranchId);
+    if (mainBranches === undefined) return <LoadingScreen message="Nacitavam stopu..." />;
     return (
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}>Main Branch Intro</Text>
-        {currentMainBranch ? (
-          <>
-            <Text style={styles.sectionTitle}>{currentMainBranch.title}</Text>
-            <Text style={styles.audioInfo}>
-              Audio: {currentMainBranch.introAudioUrl}
-            </Text>
-            {isLoadingAudio && (
-              <View style={styles.center}>
-                <ActivityIndicator size="large" />
-                <Text>Loading audio...</Text>
-              </View>
-            )}
-            {isPlayingAudio && (
-              <View style={styles.center}>
-                <ActivityIndicator size="large" />
-                <Text>Playing audio...</Text>
-              </View>
-            )}
-            {audioError && (
-              <View>
-                <Text style={styles.error}>Audio Error: {audioError}</Text>
-                <Button
-                  title="Continue Anyway"
-                  onPress={() => {
-                    setAudioError(null);
-                    finishMainIntro().catch((error) => {
-                      Alert.alert("Error", error.message);
-                    });
-                  }}
-                />
-              </View>
-            )}
-          </>
-        ) : (
-          <Text style={styles.error}>Main branch not found</Text>
-        )}
-      </ScrollView>
+      <Screen>
+        <ScreenHeader title="Uvod do stopy" />
+        {mb ? (
+          <GlassCard>
+            <Text style={s.audioCardTitle}>{mb.title}</Text>
+            {isLoadingAudio && <AudioPlayingIndicator title="Nacitavam audio..." />}
+            {isPlayingAudio && <AudioPlayingIndicator title={mb.title} />}
+            {audioError && <ErrorBanner message={`Chyba audia: ${audioError}`}
+              onRetry={() => { setAudioError(null); finishMainIntro().catch((e) => Alert.alert("Chyba", e.message)); }} />}
+          </GlassCard>
+        ) : <ErrorBanner message="Stopa sa nenasla" />}
+      </Screen>
     );
   }
 
   // SUB_SELECTION
   if (session.currentState === "SUB_SELECTION") {
-    const mustSelect = 2;
-
-    if (subBranches === undefined) {
-      return (
-        <ScrollView style={styles.container}>
-          <View style={styles.center}>
-            <ActivityIndicator size="large" />
-            <Text>Loading sub branches...</Text>
-          </View>
-        </ScrollView>
-      );
-    }
-
+    if (subBranches === undefined) return <LoadingScreen message="Nacitavam podstopy..." />;
     return (
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}>Select Sub Branches</Text>
-        <Text style={styles.info}>
-          Selected: {selectedSubsForMain.length} / {mustSelect} (required)
-        </Text>
-        <VoiceStatus />
-        {selectedSubsForMain.length < mustSelect ? (
-          <>
-            <Text style={styles.sectionTitle}>Available Sub Branches:</Text>
-            {availableSubBranches.length > 0 ? (
-              availableSubBranches.map((branch, idx) => (
-                <View key={branch._id} style={styles.buttonContainer}>
-                  <Button
-                    title={`${String.fromCharCode(65 + idx)}: ${branch.title}`}
-                    onPress={async () => {
-                      try {
-                        await selectSubBranch(branch._id);
-                      } catch (error: any) {
-                        Alert.alert("Error", error.message);
-                      }
-                    }}
-                  />
-                </View>
-              ))
-            ) : (
-              <Text style={styles.warning}>
-                No more sub branches available.
-              </Text>
-            )}
-          </>
+      <Screen>
+        <ScreenHeader title="Vyber podstopy" subtitle={`Vybrane: ${selectedSubsForMain.length} / 2`} />
+        <VoiceIndicator isRecording={voice.isRecording} isProcessing={voice.isProcessing} lastError={voice.lastError} onStopEarly={voice.stopAndRecognize} />
+        {selectedSubsForMain.length < 2 ? (
+          <View style={s.choicesContainer}>
+            {availableSubBranches.length > 0 ? availableSubBranches.map((branch, idx) => (
+              <ChoiceCard key={branch._id} letter={String.fromCharCode(65 + idx)} title={branch.title} index={idx}
+                onPress={async () => { try { await selectSubBranch(branch._id); } catch (e: any) { Alert.alert("Chyba", e.message); } }} />
+            )) : <Text style={s.emptyStateText}>Ziadne dalsie podstopy k dispozicii.</Text>}
+          </View>
         ) : (
-          <View style={styles.center}>
-            <ActivityIndicator size="large" />
-            <Text>Completing selection...</Text>
+          <View style={s.loadingContainer}>
+            <ActivityIndicator size="large" color={colors.accent} />
+            <Text style={s.loadingText}>Dokoncujem vyber...</Text>
           </View>
         )}
-      </ScrollView>
+      </Screen>
     );
   }
 
   // SUB_PLAYING
   if (session.currentState === "SUB_PLAYING") {
-    const lastSelectedSub =
-      selectedSubsForMain[selectedSubsForMain.length - 1];
-    const currentSubBranch = subBranches?.find(
-      (sb) => sb._id === lastSelectedSub
-    );
-
-    if (subBranches === undefined) {
-      return (
-        <ScrollView style={styles.container}>
-          <View style={styles.center}>
-            <ActivityIndicator size="large" />
-            <Text>Loading sub branch...</Text>
-          </View>
-        </ScrollView>
-      );
-    }
-
+    const lastSub = selectedSubsForMain[selectedSubsForMain.length - 1];
+    const sb = subBranches?.find((s) => s._id === lastSub);
+    if (subBranches === undefined) return <LoadingScreen message="Nacitavam podstopy..." />;
     return (
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}>Playing Sub Branch</Text>
-        {currentSubBranch ? (
-          <>
-            <Text style={styles.sectionTitle}>{currentSubBranch.title}</Text>
-            <Text style={styles.audioInfo}>
-              Audio: {currentSubBranch.audioUrl}
-            </Text>
-            {isLoadingAudio && (
-              <View style={styles.center}>
-                <ActivityIndicator size="large" />
-                <Text>Loading audio...</Text>
-              </View>
-            )}
-            {isPlayingAudio && (
-              <View style={styles.center}>
-                <ActivityIndicator size="large" />
-                <Text>Playing audio...</Text>
-              </View>
-            )}
-            {audioError && (
-              <View>
-                <Text style={styles.error}>Audio Error: {audioError}</Text>
-                <Button
-                  title="Continue Anyway"
-                  onPress={() => {
-                    setAudioError(null);
-                    if (selectedSubsForMain.length === 2) {
-                      finishSubBranch().catch((error) => {
-                        Alert.alert("Error", error.message);
-                      });
-                    } else {
-                      returnToSubSelection().catch((error) => {
-                        Alert.alert("Error", error.message);
-                      });
-                    }
-                  }}
-                />
-              </View>
-            )}
-          </>
-        ) : (
-          <Text style={styles.error}>Sub branch not found</Text>
-        )}
-      </ScrollView>
+      <Screen>
+        <ScreenHeader title="Pocuvaj stopu" />
+        {sb ? (
+          <GlassCard>
+            <Text style={s.audioCardTitle}>{sb.title}</Text>
+            {isLoadingAudio && <AudioPlayingIndicator title="Nacitavam audio..." />}
+            {isPlayingAudio && <AudioPlayingIndicator title={sb.title} />}
+            {audioError && <ErrorBanner message={`Chyba audia: ${audioError}`}
+              onRetry={() => {
+                setAudioError(null);
+                if (selectedSubsForMain.length === 2) finishSubBranch().catch((e) => Alert.alert("Chyba", e.message));
+                else returnToSubSelection().catch((e) => Alert.alert("Chyba", e.message));
+              }} />}
+          </GlassCard>
+        ) : <ErrorBanner message="Podstopa sa nenasla" />}
+      </Screen>
     );
   }
 
   // ACCUSATION_INTRO
   if (session.currentState === "ACCUSATION_INTRO") {
     return (
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}>Accusation Intro</Text>
-        <Text style={styles.audioInfo}>
-          Playing accusation intro audio...
-        </Text>
-        {isLoadingAudio && (
-          <View style={styles.center}>
-            <ActivityIndicator size="large" />
-            <Text>Loading audio...</Text>
-          </View>
-        )}
-        {isPlayingAudio && (
-          <View style={styles.center}>
-            <ActivityIndicator size="large" />
-            <Text>Playing audio...</Text>
-          </View>
-        )}
-        {audioError && (
-          <View>
-            <Text style={styles.error}>Audio Error: {audioError}</Text>
-            <Button
-              title="Continue Anyway"
-              onPress={() => {
-                setAudioError(null);
-                finishAccusationIntro().catch((error) => {
-                  Alert.alert("Error", error.message);
-                });
-              }}
-            />
-          </View>
-        )}
-      </ScrollView>
+      <Screen>
+        <ScreenHeader title="Obvinenie" subtitle="Koho obvinis?" />
+        <GlassCard>
+          {isLoadingAudio && <AudioPlayingIndicator title="Nacitavam uvod..." />}
+          {isPlayingAudio && <AudioPlayingIndicator title="Uvod k obvineniu..." />}
+          {audioError && <ErrorBanner message={`Chyba audia: ${audioError}`}
+            onRetry={() => { setAudioError(null); finishAccusationIntro().catch((e) => Alert.alert("Chyba", e.message)); }} />}
+        </GlassCard>
+      </Screen>
     );
   }
 
   // ACCUSATION_SELECTION
   if (session.currentState === "ACCUSATION_SELECTION") {
-    if (accusations === undefined) {
-      return (
-        <ScrollView style={styles.container}>
-          <View style={styles.center}>
-            <ActivityIndicator size="large" />
-            <Text>Loading accusations...</Text>
-          </View>
-        </ScrollView>
-      );
-    }
-
+    if (accusations === undefined) return <LoadingScreen message="Nacitavam podozrivych..." />;
     return (
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}>Select Suspect</Text>
-        <Text style={styles.sectionTitle}>Choose an accusation:</Text>
-        <VoiceStatus />
-        {accusations?.map((accusation, idx) => (
-          <View key={accusation._id} style={styles.buttonContainer}>
-            <Button
-              title={`${String.fromCharCode(65 + idx)}: ${accusation.suspectName}`}
+      <Screen>
+        <ScreenHeader title="Koho obvinis?" subtitle="Vyber podozriveho" />
+        <VoiceIndicator isRecording={voice.isRecording} isProcessing={voice.isProcessing} lastError={voice.lastError} onStopEarly={voice.stopAndRecognize} />
+        <View style={s.choicesContainer}>
+          {accusations?.map((acc, idx) => (
+            <ChoiceCard key={acc._id} letter={String.fromCharCode(65 + idx)} title={acc.suspectName} index={idx}
               onPress={async () => {
                 try {
-                  const result = await selectAccusation(accusation._id);
-                  if (result.audioUrl) {
-                    playAudio(
-                      result.audioUrl,
-                      () => {
-                        Alert.alert(
-                          "Result",
-                          `Is Correct: ${result.isCorrect ? "Yes ✅" : "No ❌"}`,
-                          [
-                            {
-                              text: "OK",
-                              onPress: () => {
-                                setSessionId(null);
-                                setIsCreatingSession(false);
-                              },
-                            },
-                          ]
-                        );
-                      },
-                      (error) => {
-                        console.error("Result audio error:", error);
-                        Alert.alert(
-                          "Result",
-                          `Is Correct: ${result.isCorrect ? "Yes ✅" : "No ❌"}`,
-                          [
-                            {
-                              text: "OK",
-                              onPress: () => {
-                                setSessionId(null);
-                                setIsCreatingSession(false);
-                              },
-                            },
-                          ]
-                        );
-                      }
-                    );
-                  } else {
-                    Alert.alert(
-                      "Result",
-                      `Is Correct: ${result.isCorrect ? "Yes ✅" : "No ❌"}`,
-                      [
-                        {
-                          text: "OK",
-                          onPress: () => {
-                            setSessionId(null);
-                            setIsCreatingSession(false);
-                          },
-                        },
-                      ]
-                    );
-                  }
-                } catch (error: any) {
-                  Alert.alert("Error", error.message);
-                }
-              }}
-            />
-          </View>
-        ))}
-      </ScrollView>
+                  const result = await selectAccusation(acc._id);
+                  if (result.audioUrl) playAudio(result.audioUrl, () => showResult(result.isCorrect), () => showResult(result.isCorrect));
+                  else showResult(result.isCorrect);
+                } catch (e: any) { Alert.alert("Chyba", e.message); }
+              }} />
+          ))}
+        </View>
+      </Screen>
     );
   }
 
   // RESULT
   if (session.currentState === "RESULT") {
     return (
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}>Result</Text>
-        {isLoadingAudio && (
-          <View style={styles.center}>
-            <ActivityIndicator size="large" />
-            <Text>Loading result audio...</Text>
-          </View>
-        )}
-        {isPlayingAudio && (
-          <View style={styles.center}>
-            <ActivityIndicator size="large" />
-            <Text>Playing result audio...</Text>
-          </View>
-        )}
-        {audioError && (
-          <Text style={styles.error}>Audio Error: {audioError}</Text>
-        )}
-        <View style={styles.buttonContainer}>
-          <Button
-            title="Back to Main Menu"
-            onPress={() => {
-              setSessionId(null);
-              setIsCreatingSession(false);
-            }}
-          />
-        </View>
-      </ScrollView>
+      <Screen>
+        <ScreenHeader title="Vysledok" />
+        {isLoadingAudio && <AudioPlayingIndicator title="Nacitavam vysledok..." />}
+        {isPlayingAudio && <AudioPlayingIndicator title="Prehrava sa vysledok..." />}
+        {audioError && <ErrorBanner message={`Chyba audia: ${audioError}`} />}
+        <PrimaryButton title="Spat na hlavnu obrazovku" variant="ghost"
+          onPress={() => { setSessionId(null); setIsCreatingSession(false); }} />
+      </Screen>
     );
   }
 
-  // Unknown state
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>Unknown State</Text>
-      {session && (
-        <Text style={styles.info}>Current State: {session.currentState}</Text>
-      )}
-    </ScrollView>
+    <Screen>
+      <ScreenHeader title="Neznamy stav" subtitle={session ? `Stav: ${session.currentState}` : undefined} />
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
+// ─── Styles ───────────────────────────────────────────────────────
+
+const s = StyleSheet.create({
+  bgImage: {
     flex: 1,
-    padding: 20,
-    backgroundColor: "#fff",
+    width: "100%",
+    height: "100%",
   },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    marginBottom: 20,
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(6, 6, 12, 0.45)",
   },
-  sectionTitle: {
+  screen: {
+    flex: 1,
+  },
+  screenContent: {
+    padding: spacing.xl,
+    paddingBottom: spacing.xxxl + 20,
+  },
+
+  // Glass card
+  glassCardOuter: {
+    borderRadius: radii.xl,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+    borderTopColor: "rgba(255,255,255,0.45)",
+    ...shadows.card,
+  },
+  glassInner: {
+    padding: spacing.xl,
+  },
+
+  // Hero
+  heroTagline: {
+    fontSize: 11,
+    fontFamily: fonts.extraBold,
+    color: colors.accent,
+    letterSpacing: 3,
+    marginTop: spacing.xxxl,
+    marginBottom: spacing.sm,
+  },
+  heroTitle: {
+    fontSize: 42,
+    fontFamily: fonts.black,
+    color: colors.white,
+    letterSpacing: -1.5,
+  },
+  heroSubtitle: {
+    fontSize: 15,
+    fontFamily: fonts.regular,
+    color: "rgba(255,255,255,0.45)",
+    marginTop: spacing.md,
+    marginBottom: spacing.xxl,
+    lineHeight: 22,
+  },
+
+  // Mode selector
+  modeSelector: {
+    marginBottom: spacing.xxl,
+  },
+  modeSelectorLabel: {
+    fontSize: 11,
+    fontFamily: fonts.bold,
+    color: "rgba(255,255,255,0.3)",
+    letterSpacing: 2,
+    marginBottom: spacing.sm,
+  },
+  modeToggleOuter: {
+    borderRadius: radii.lg,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    borderTopColor: "rgba(255,255,255,0.30)",
+  },
+  modeToggleInner: {
+    flexDirection: "row",
+    padding: spacing.xs,
+  },
+  modeIndicator: {
+    position: "absolute",
+    top: spacing.xs,
+    left: spacing.xs,
+    bottom: spacing.xs,
+    borderRadius: radii.md,
+    backgroundColor: colors.accent,
+  },
+  modeOption: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    borderRadius: radii.md,
+    alignItems: "center",
+    zIndex: 1,
+  },
+  modeOptionText: {
+    ...typography.button,
+    color: "rgba(255,255,255,0.4)",
+  },
+
+  // Podcast cards
+  podcastList: {
+    gap: spacing.md,
+  },
+  podcastCard: {
+    borderRadius: radii.xl,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+    borderTopColor: "rgba(255,255,255,0.45)",
+    ...shadows.card,
+  },
+  podcastCardPressed: {
+    borderColor: "rgba(255,255,255,0.50)",
+  },
+  podcastCardContent: {
+    flex: 1,
+    padding: spacing.xl,
+  },
+  podcastCardTitle: {
     fontSize: 18,
-    fontWeight: "600",
-    marginTop: 15,
-    marginBottom: 10,
+    fontFamily: fonts.bold,
+    color: colors.white,
+    marginBottom: spacing.xs,
   },
-  description: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 10,
+  podcastCardDesc: {
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: "rgba(255,255,255,0.5)",
+    marginBottom: spacing.md,
+    lineHeight: 19,
   },
-  audioInfo: {
-    fontSize: 12,
-    color: "#999",
-    fontStyle: "italic",
-    marginBottom: 15,
+  podcastCardBadgeRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
   },
-  info: {
-    fontSize: 14,
-    marginBottom: 15,
-    color: "#333",
+  podcastCardBadge: {
+    backgroundColor: "rgba(230, 57, 70, 0.15)",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radii.pill,
   },
-  warning: {
-    fontSize: 14,
-    color: "#ff6b00",
-    marginBottom: 15,
+  podcastCardBadgeText: {
+    fontSize: 10,
+    fontFamily: fonts.extraBold,
+    color: colors.accent,
+    letterSpacing: 1,
   },
-  error: {
-    fontSize: 14,
-    color: "#dc2626",
-    marginBottom: 15,
+
+  // Empty state
+  emptyState: {
+    alignItems: "center",
+    paddingVertical: spacing.xxxl,
   },
-  buttonContainer: {
-    marginVertical: 5,
+  emptyStateText: {
+    ...typography.body,
+    color: "rgba(255,255,255,0.3)",
+    textAlign: "center",
   },
-  center: {
+
+  // Loading
+  loadingContainer: {
     alignItems: "center",
     justifyContent: "center",
-    padding: 20,
+    paddingVertical: spacing.xxxl,
+    gap: spacing.md,
   },
-  voiceStatus: {
-    backgroundColor: "#f0f4ff",
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: "#c7d2fe",
+  loadingPulse: {
+    marginBottom: spacing.sm,
   },
-  voiceStatusText: {
+  loadingText: {
+    ...typography.body,
+    color: "rgba(255,255,255,0.5)",
+  },
+
+  // Header
+  header: {
+    marginBottom: spacing.xl,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontFamily: fonts.extraBold,
+    color: colors.white,
+    letterSpacing: -0.5,
+  },
+  headerSubtitle: {
     fontSize: 14,
-    color: "#4338ca",
-    textAlign: "center",
-    marginBottom: 4,
+    fontFamily: fonts.regular,
+    color: "rgba(255,255,255,0.4)",
+    marginTop: spacing.xs,
   },
-  voiceStatusError: {
-    color: "#dc2626",
+  headerLine: {
+    width: 40,
+    height: 3,
+    backgroundColor: colors.accent,
+    borderRadius: 2,
+    marginTop: spacing.md,
+  },
+
+  // Choice cards
+  choicesContainer: {
+    gap: spacing.md,
+  },
+  choiceCard: {
+    borderRadius: radii.xl,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.25)",
+    borderTopColor: "rgba(255,255,255,0.45)",
+    ...shadows.card,
+  },
+  choiceCardPressed: {
+    borderColor: "rgba(255,255,255,0.50)",
+  },
+  choiceCardInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: spacing.lg,
+  },
+  choiceBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: spacing.lg,
+  },
+  choiceBadgeText: {
+    fontSize: 16,
+    fontFamily: fonts.extraBold,
+    color: colors.white,
+  },
+  choiceTitle: {
+    fontSize: 15,
+    fontFamily: fonts.semiBold,
+    color: colors.white,
+    flex: 1,
+  },
+  choiceArrow: {
+    fontSize: 28,
+    color: "rgba(255,255,255,0.2)",
+    marginLeft: spacing.sm,
+  },
+
+  // Intro
+  introCard: {
+    marginBottom: spacing.xl,
+  },
+  introLabel: {
+    fontSize: 11,
+    fontFamily: fonts.extraBold,
+    color: colors.accent,
+    letterSpacing: 2,
+    marginBottom: spacing.sm,
+  },
+  introTitle: {
+    fontSize: 26,
+    fontFamily: fonts.extraBold,
+    color: colors.white,
+    marginBottom: spacing.sm,
+    letterSpacing: -0.3,
+  },
+  introDesc: {
+    fontSize: 14,
+    fontFamily: fonts.regular,
+    color: "rgba(255,255,255,0.5)",
+    lineHeight: 21,
+  },
+  introActions: {
+    gap: spacing.md,
+  },
+
+  // Audio indicator
+  audioIndicator: {
+    alignItems: "center",
+    paddingVertical: spacing.xxl,
+  },
+  audioOuterRing: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: "rgba(230, 57, 70, 0.08)",
+    position: "absolute",
+    top: spacing.xl,
+  },
+  audioPulseRing: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: "rgba(230, 57, 70, 0.2)",
+    position: "absolute",
+    top: spacing.xxl - 2,
+  },
+  audioDot: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.accent,
+  },
+  audioPlayingText: {
+    fontSize: 14,
+    fontFamily: fonts.regular,
+    color: "rgba(255,255,255,0.5)",
+    marginTop: spacing.lg,
+  },
+
+  audioCardTitle: {
+    fontSize: 18,
+    fontFamily: fonts.bold,
+    color: colors.white,
+    marginBottom: spacing.lg,
+  },
+
+  // Voice
+  voiceBar: {
+    marginBottom: spacing.lg,
+    padding: spacing.md,
+  },
+  voiceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  recordingDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.accent,
+  },
+  voiceRecText: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    color: colors.accent,
+    flex: 1,
+  },
+  voiceStopBtn: {
+    backgroundColor: "rgba(230, 57, 70, 0.2)",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.pill,
+  },
+  voiceStopBtnText: {
+    fontSize: 12,
+    color: colors.accent,
+    fontFamily: fonts.bold,
+  },
+  voiceProcText: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    color: colors.amber,
+    flex: 1,
+  },
+  voiceErrText: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    color: colors.error,
+    textAlign: "center",
+  },
+
+  // Error
+  errorBanner: {
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.3)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  errorBannerText: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    color: colors.error,
+    flex: 1,
+  },
+  errorRetryBtn: {
+    backgroundColor: colors.error,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.pill,
+    marginLeft: spacing.sm,
+  },
+  errorRetryText: {
+    fontSize: 12,
+    color: colors.white,
+    fontFamily: fonts.bold,
+  },
+
+  // Buttons
+  primaryBtn: {
+    borderRadius: radii.pill,
+    paddingVertical: 16,
+    paddingHorizontal: spacing.xl,
+    alignItems: "center",
+  },
+  primaryBtnText: {
+    fontSize: 15,
+    fontFamily: fonts.extraBold,
+    color: colors.white,
+    letterSpacing: 1,
+  },
+  ghostBtn: {
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
   },
 });

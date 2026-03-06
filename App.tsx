@@ -1,6 +1,7 @@
 import { StatusBar } from 'expo-status-bar';
 import React, { useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Pressable,
   SafeAreaView,
@@ -9,13 +10,21 @@ import {
   View,
   Switch,
 } from 'react-native';
+import { useFonts } from 'expo-font';
+import {
+  Montserrat_400Regular,
+  Montserrat_500Medium,
+  Montserrat_600SemiBold,
+  Montserrat_700Bold,
+  Montserrat_800ExtraBold,
+  Montserrat_900Black,
+} from '@expo-google-fonts/montserrat';
 import { ConvexProvider, ConvexReactClient } from 'convex/react';
 import type { Story, StoryNode } from './stories';
 import { stories } from './stories';
-// DEV ONLY - Debug screen for testing podcast engine (expo-av audio)
 import { TestPodcastFlow } from './components/TestPodcastFlow';
+import { colors, fonts, spacing, radii, typography, shadows } from './theme';
 
-// Initialize Convex client – MUST be provided via env, no dev fallback
 const CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL;
 
 if (!CONVEX_URL) {
@@ -29,20 +38,16 @@ const convex = new ConvexReactClient(CONVEX_URL);
 type InteractionMode = 'touch' | 'voice';
 
 export default function App() {
-  // DEV ONLY - Toggle between old story app and dev podcast engine test
-  const [useDevEngine, setUseDevEngine] = useState(__DEV__ ? true : false);
+  const [fontsLoaded] = useFonts({
+    Montserrat_400Regular,
+    Montserrat_500Medium,
+    Montserrat_600SemiBold,
+    Montserrat_700Bold,
+    Montserrat_800ExtraBold,
+    Montserrat_900Black,
+  });
 
-  if (__DEV__ && useDevEngine) {
-    return (
-      <ConvexProvider client={convex}>
-        <SafeAreaView style={styles.safeArea}>
-          <StatusBar style="light" />
-          <TestPodcastFlow />
-        </SafeAreaView>
-      </ConvexProvider>
-    );
-  }
-
+  const [useDevEngine] = useState(__DEV__ ? true : false);
   const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
   const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('touch');
@@ -57,6 +62,28 @@ export default function App() {
     const effectiveId = currentNodeId ?? selectedStory.entryNodeId;
     return selectedStory.nodes[effectiveId] ?? null;
   }, [selectedStory, currentNodeId]);
+
+  if (!fontsLoaded) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar style="light" />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={colors.accent} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (__DEV__ && useDevEngine) {
+    return (
+      <ConvexProvider client={convex}>
+        <SafeAreaView style={styles.safeArea}>
+          <StatusBar style="light" />
+          <TestPodcastFlow />
+        </SafeAreaView>
+      </ConvexProvider>
+    );
+  }
 
   const handleStartStory = (storyId: string) => {
     const story = stories.find((s) => s.id === storyId);
@@ -90,7 +117,7 @@ export default function App() {
       <StatusBar style="light" />
       <View style={styles.container}>
         <Text style={styles.appTitle}>Pod povrchom</Text>
-        <Text style={styles.appSubtitle}>Interaktívne krimi príbehy v tvojej réžii</Text>
+        <Text style={styles.appSubtitle}>Interaktivne krimi pribehy v tvojej rezii</Text>
 
         {showHome ? (
           <HomeScreen stories={stories} onStartStory={handleStartStory} />
@@ -118,7 +145,7 @@ type HomeScreenProps = {
 const HomeScreen: React.FC<HomeScreenProps> = ({ stories, onStartStory }) => {
   return (
     <View style={styles.content}>
-      <Text style={styles.sectionTitle}>Vyber si prípad</Text>
+      <Text style={styles.sectionTitle}>Vyber si pripad</Text>
       <FlatList
         data={stories}
         keyExtractor={(item) => item.id}
@@ -134,8 +161,12 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ stories, onStartStory }) => {
             <Text style={styles.storyTitle}>{item.title}</Text>
             <Text style={styles.storyDescription}>{item.description}</Text>
             <View style={styles.storyMetaRow}>
-              <Text style={styles.storyMetaBadge}>Obtiažnosť: {item.difficulty}</Text>
-              <Text style={styles.storyMetaBadge}>Pilotný diel</Text>
+              <View style={styles.storyMetaBadge}>
+                <Text style={styles.storyMetaBadgeText}>Obtiaznost: {item.difficulty}</Text>
+              </View>
+              <View style={styles.storyMetaBadge}>
+                <Text style={styles.storyMetaBadgeText}>Pilotny diel</Text>
+              </View>
             </View>
           </Pressable>
         )}
@@ -170,19 +201,21 @@ const StoryPlayerScreen: React.FC<StoryPlayerScreenProps> = ({
       <View style={styles.headerRow}>
         <Text style={styles.sectionTitle}>{story.title}</Text>
         <Pressable style={styles.exitButton} onPress={onExit}>
-          <Text style={styles.exitButtonText}>Ukončiť prípad</Text>
+          <Text style={styles.exitButtonText}>Ukoncit pripad</Text>
         </Pressable>
       </View>
 
       <View style={styles.modeToggleRow}>
-        <Text style={styles.modeLabel}>Režim: {interactionMode === 'touch' ? 'Dotyk' : 'Hlas (príprava)'}</Text>
+        <Text style={styles.modeLabel}>
+          Rezim: {interactionMode === 'touch' ? 'Dotyk' : 'Hlas'}
+        </Text>
         <View style={styles.modeSwitch}>
           <Text style={styles.modeSwitchLabel}>Dotyk</Text>
           <Switch
             value={interactionMode === 'voice'}
             onValueChange={onToggleInteractionMode}
-            thumbColor="#f97316"
-            trackColor={{ false: '#4b5563', true: '#f97316' }}
+            thumbColor={colors.accent}
+            trackColor={{ false: colors.surfaceBorder, true: colors.accent }}
           />
           <Text style={styles.modeSwitchLabel}>Hlas</Text>
         </View>
@@ -190,8 +223,7 @@ const StoryPlayerScreen: React.FC<StoryPlayerScreenProps> = ({
 
       {interactionMode === 'voice' && (
         <Text style={styles.voiceHint}>
-          Hlasový výber je zatiaľ len koncept. Vetvy môžeš dočasne vyberať tlačidlami
-          nižšie – neskôr sem doplníme skutočné rozpoznávanie reči.
+          Hlasovy vyber je zatial len koncept. Vetvy mozes docasne vyberat tlacidlami nizsie.
         </Text>
       )}
 
@@ -203,10 +235,10 @@ const StoryPlayerScreen: React.FC<StoryPlayerScreenProps> = ({
           <View style={styles.endingBadgeRow}>
             <Text style={styles.endingBadge}>
               {node.outcome === 'solved'
-                ? '✅ Prípad vyriešený'
+                ? 'Pripad vyrieseny'
                 : node.outcome === 'unsolved'
-                ? '🗃️ Prípad v archíve'
-                : '❓ Slepá ulička'}
+                  ? 'Pripad v archive'
+                  : 'Slepa ulicka'}
             </Text>
           </View>
         )}
@@ -222,7 +254,7 @@ const StoryPlayerScreen: React.FC<StoryPlayerScreenProps> = ({
               ]}
               onPress={onRestart}
             >
-              <Text style={styles.primaryButtonText}>Začať prípad odznova</Text>
+              <Text style={styles.primaryButtonText}>Zacat pripad odznova</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [
@@ -231,12 +263,12 @@ const StoryPlayerScreen: React.FC<StoryPlayerScreenProps> = ({
               ]}
               onPress={onExit}
             >
-              <Text style={styles.secondaryButtonText}>Späť na výber príbehov</Text>
+              <Text style={styles.secondaryButtonText}>Spat na vyber pribehov</Text>
             </Pressable>
           </>
         ) : (
           <>
-            <Text style={styles.choicesTitle}>Ako budeš pokračovať?</Text>
+            <Text style={styles.choicesTitle}>Ako budes pokracovat?</Text>
             {node.choices?.map((choice) => (
               <Pressable
                 key={choice.id}
@@ -259,196 +291,204 @@ const StoryPlayerScreen: React.FC<StoryPlayerScreenProps> = ({
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#020617',
+    backgroundColor: colors.bg,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.bg,
   },
   container: {
     flex: 1,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    backgroundColor: '#020617',
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.bg,
   },
   appTitle: {
+    ...typography.heroTitle,
     fontSize: 28,
-    fontWeight: '800',
-    color: '#e5e7eb',
-    marginBottom: 4,
+    marginBottom: spacing.xs,
   },
   appSubtitle: {
+    ...typography.subtitle,
     fontSize: 14,
-    color: '#9ca3af',
-    marginBottom: 16,
+    marginBottom: spacing.lg,
   },
   content: {
     flex: 1,
   },
   sectionTitle: {
+    ...typography.title,
     fontSize: 20,
-    fontWeight: '700',
-    color: '#e5e7eb',
-    marginBottom: 12,
+    marginBottom: spacing.md,
   },
   listContent: {
-    paddingBottom: 24,
+    paddingBottom: spacing.xxl,
   },
   storyCard: {
-    backgroundColor: '#0b1120',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: colors.surfaceBorder,
+    ...shadows.card,
   },
   storyCardPressed: {
-    backgroundColor: '#020617',
+    backgroundColor: colors.surfaceHover,
+    borderColor: colors.accent,
   },
   storyTitle: {
+    ...typography.body,
     fontSize: 16,
-    fontWeight: '700',
-    color: '#f9fafb',
-    marginBottom: 4,
+    fontFamily: fonts.bold,
+    color: colors.text,
+    marginBottom: spacing.xs,
   },
   storyDescription: {
+    ...typography.body,
     fontSize: 13,
-    color: '#9ca3af',
-    marginBottom: 12,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
   },
   storyMetaRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 8,
+    gap: spacing.sm,
   },
   storyMetaBadge: {
-    fontSize: 11,
-    color: '#e5e7eb',
-    backgroundColor: '#111827',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
+    backgroundColor: colors.accentGlow,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radii.pill,
+  },
+  storyMetaBadgeText: {
+    ...typography.caption,
+    color: colors.accent,
+    fontFamily: fonts.semiBold,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: spacing.md,
   },
   exitButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: '#4b5563',
+    borderColor: colors.surfaceBorder,
   },
   exitButtonText: {
-    fontSize: 11,
-    color: '#9ca3af',
+    ...typography.caption,
+    color: colors.textSecondary,
   },
   modeToggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
+    marginBottom: spacing.sm,
   },
   modeLabel: {
-    fontSize: 13,
-    color: '#9ca3af',
+    ...typography.caption,
+    color: colors.textSecondary,
   },
   modeSwitch: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: spacing.xs,
   },
   modeSwitchLabel: {
-    fontSize: 11,
-    color: '#6b7280',
+    ...typography.caption,
+    color: colors.textMuted,
   },
   voiceHint: {
-    fontSize: 11,
-    color: '#fbbf24',
-    marginBottom: 8,
+    ...typography.caption,
+    color: colors.amber,
+    marginBottom: spacing.sm,
   },
   storyBlock: {
     flex: 1,
-    backgroundColor: '#020617',
-    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    padding: 16,
-    marginBottom: 12,
+    borderColor: colors.surfaceBorder,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
   },
   nodeTitle: {
+    ...typography.body,
     fontSize: 16,
-    fontWeight: '700',
-    color: '#f9fafb',
-    marginBottom: 8,
+    fontFamily: fonts.bold,
+    color: colors.text,
+    marginBottom: spacing.sm,
   },
   nodeText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#d1d5db',
+    ...typography.body,
+    color: colors.textSecondary,
   },
   endingBadgeRow: {
-    marginTop: 14,
+    marginTop: spacing.md,
   },
   endingBadge: {
-    fontSize: 13,
-    color: '#f9fafb',
+    ...typography.badge,
+    color: colors.text,
   },
   actionsBlock: {
-    gap: 8,
+    gap: spacing.sm,
   },
   choicesTitle: {
-    fontSize: 13,
-    color: '#9ca3af',
-    marginBottom: 4,
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
   },
   choiceButton: {
-    backgroundColor: '#0b1120',
-    borderRadius: 999,
+    backgroundColor: colors.surface,
+    borderRadius: radii.pill,
     paddingVertical: 10,
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.lg,
     borderWidth: 1,
-    borderColor: '#1f2937',
-    marginBottom: 4,
+    borderColor: colors.surfaceBorder,
+    marginBottom: spacing.xs,
   },
   choiceButtonPressed: {
-    backgroundColor: '#111827',
+    backgroundColor: colors.surfaceHover,
+    borderColor: colors.accent,
   },
   choiceButtonText: {
-    fontSize: 14,
-    color: '#f9fafb',
+    ...typography.body,
+    color: colors.text,
     textAlign: 'center',
   },
   primaryButton: {
-    backgroundColor: '#f97316',
-    borderRadius: 999,
+    backgroundColor: colors.accent,
+    borderRadius: radii.pill,
     paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.lg,
   },
   primaryButtonPressed: {
-    backgroundColor: '#ea580c',
+    backgroundColor: colors.accentDark,
   },
   primaryButtonText: {
-    fontSize: 14,
-    color: '#111827',
-    fontWeight: '700',
+    ...typography.button,
+    color: colors.white,
     textAlign: 'center',
   },
   secondaryButton: {
-    backgroundColor: '#020617',
-    borderRadius: 999,
+    backgroundColor: colors.bg,
+    borderRadius: radii.pill,
     paddingVertical: 10,
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.lg,
     borderWidth: 1,
-    borderColor: '#4b5563',
+    borderColor: colors.surfaceBorder,
   },
   secondaryButtonPressed: {
-    backgroundColor: '#020617',
-    opacity: 0.9,
+    backgroundColor: colors.surfaceHover,
   },
   secondaryButtonText: {
-    fontSize: 14,
-    color: '#e5e7eb',
+    ...typography.body,
+    color: colors.text,
     textAlign: 'center',
   },
 });
-
