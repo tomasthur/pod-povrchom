@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,9 +9,10 @@ import {
   Alert,
 } from "react-native";
 import { Audio } from "expo-av";
-import { useQuery, useMutation } from "convex/react";
+import { useQuery, useMutation, useAction } from "convex/react";
 import { api } from "../convex/_generated/api";
 import { usePodcastSession } from "../hooks/usePodcastSession";
+import { useAutoVoiceRecording } from "../hooks/useAutoVoiceRecording";
 import type { Id } from "../convex/_generated/dataModel";
 
 export function TestPodcastFlow() {
@@ -24,8 +25,9 @@ export function TestPodcastFlow() {
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
-  // Guard to ensure we start audio only once per logical step/state
   const audioPlayedKeyRef = useRef<string | null>(null);
+  const proceedingRef = useRef(false);
+  const [voiceMode, setVoiceMode] = useState<"buttons" | "voice">("buttons");
 
   const createSessionMutation = useMutation(api.sessions.createSession);
   const {
@@ -41,8 +43,8 @@ export function TestPodcastFlow() {
     returnToSubSelection,
   } = usePodcastSession(sessionId);
 
-  // Load all podcasts so user can choose which one to play
   const podcasts = useQuery(api.podcasts.listPodcasts, {});
+  const recognizeVoiceChoice = useAction(api.voice.recognizeVoiceChoice);
 
   const podcast = useQuery(
     api.podcasts.getPodcast,
@@ -56,7 +58,9 @@ export function TestPodcastFlow() {
 
   const subBranches = useQuery(
     api.podcasts.getSubBranches,
-    session?.currentMainBranchId ? { mainBranchId: session.currentMainBranchId } : "skip"
+    session?.currentMainBranchId
+      ? { mainBranchId: session.currentMainBranchId }
+      : "skip"
   );
 
   const accusations = useQuery(
@@ -64,13 +68,149 @@ export function TestPodcastFlow() {
     session?.podcastId ? { podcastId: session.podcastId } : "skip"
   );
 
-  // Calculate selected sub branches for current main branch
   const currentMainBranchId = session?.currentMainBranchId;
   const selectedSubsForMain = currentMainBranchId
     ? session?.selectedSubBranches[currentMainBranchId] ?? []
     : [];
 
-  // Configure global audio mode once and cleanup on unmount
+  // --- Derived data for voice ---
+
+  const currentState = session?.currentState ?? "";
+
+  const availableMainBranches =
+    currentState === "MAIN_SELECTION"
+      ? mainBranches?.filter(
+          (mb) => !session!.selectedMainBranches.includes(mb._id)
+        ) ?? []
+      : [];
+
+  const availableSubBranches =
+    currentState === "SUB_SELECTION"
+      ? subBranches?.filter(
+          (sb) => !selectedSubsForMain.includes(sb._id)
+        ) ?? []
+      : [];
+
+  const currentAccusations =
+    currentState === "ACCUSATION_SELECTION" ? accusations ?? [] : [];
+
+  const voiceNumOptions =
+    currentState === "MAIN_SELECTION"
+      ? availableMainBranches.length
+      : currentState === "SUB_SELECTION"
+      ? availableSubBranches.length
+      : currentState === "ACCUSATION_SELECTION"
+      ? currentAccusations.length
+      : 0;
+
+  const voiceActive =
+    voiceMode === "voice" &&
+    voiceNumOptions > 0 &&
+    ["MAIN_SELECTION", "SUB_SELECTION", "ACCUSATION_SELECTION"].includes(
+      currentState
+    ) &&
+    !isPlayingAudio &&
+    !isLoadingAudio;
+
+  const handleVoiceChoice = useCallback(
+    async (index: number) => {
+      const state = session?.currentState;
+      try {
+        if (state === "MAIN_SELECTION") {
+          const branch = availableMainBranches[index];
+          if (branch) await selectMainBranch(branch._id);
+        } else if (state === "SUB_SELECTION") {
+          const branch = availableSubBranches[index];
+          if (branch) await selectSubBranch(branch._id);
+        } else if (state === "ACCUSATION_SELECTION") {
+          const accusation = currentAccusations[index];
+          if (accusation) {
+            const result = await selectAccusation(accusation._id);
+            if (result.audioUrl) {
+              playAudio(
+                result.audioUrl,
+                () => {
+                  Alert.alert(
+                    "Result",
+                    `Is Correct: ${result.isCorrect ? "Yes ✅" : "No ❌"}`,
+                    [
+                      {
+                        text: "OK",
+                        onPress: () => {
+                          setSessionId(null);
+                          setIsCreatingSession(false);
+                        },
+                      },
+                    ]
+                  );
+                },
+                () => {
+                  Alert.alert(
+                    "Result",
+                    `Is Correct: ${result.isCorrect ? "Yes ✅" : "No ❌"}`,
+                    [
+                      {
+                        text: "OK",
+                        onPress: () => {
+                          setSessionId(null);
+                          setIsCreatingSession(false);
+                        },
+                      },
+                    ]
+                  );
+                }
+              );
+            } else {
+              Alert.alert(
+                "Result",
+                `Is Correct: ${result.isCorrect ? "Yes ✅" : "No ❌"}`,
+                [
+                  {
+                    text: "OK",
+                    onPress: () => {
+                      setSessionId(null);
+                      setIsCreatingSession(false);
+                    },
+                  },
+                ]
+              );
+            }
+          }
+        }
+      } catch (error: any) {
+        Alert.alert("Error", error.message);
+      }
+    },
+    [
+      session?.currentState,
+      availableMainBranches,
+      availableSubBranches,
+      currentAccusations,
+      selectMainBranch,
+      selectSubBranch,
+      selectAccusation,
+    ]
+  );
+
+  const handleVoiceError = useCallback((transcript: string) => {
+    Alert.alert(
+      "Nerozpoznal som výber",
+      transcript
+        ? `Rozpoznaný text: "${transcript}"\n\nPovedz napr. "A", "jedna" alebo "možnosť 1".`
+        : "Nerozpoznal som nič. Povedz jasne \"A\", \"B\" alebo klikni na tlačidlo."
+    );
+  }, []);
+
+  const voice = useAutoVoiceRecording({
+    active: voiceActive,
+    numOptions: voiceNumOptions,
+    recognizeFn: recognizeVoiceChoice,
+    onChoice: handleVoiceChoice,
+    onError: handleVoiceError,
+  });
+
+  // --- Audio setup ---
+
   useEffect(() => {
     Audio.setAudioModeAsync({
       allowsRecordingIOS: false,
@@ -89,34 +229,12 @@ export function TestPodcastFlow() {
     };
   }, []);
 
-  // Reset audio guard when state changes so new state can trigger its audio once
   useEffect(() => {
     audioPlayedKeyRef.current = null;
   }, [session?.currentState, session?.currentMainBranchId]);
 
-  // Initialize session once we know which podcast to use
-  useEffect(() => {
-    if (!sessionId && !isCreatingSession && selectedPodcastId) {
-      setIsCreatingSession(true);
-      createSessionMutation({ podcastId: selectedPodcastId })
-        .then((id) => {
-          setSessionId(id);
-          setIsCreatingSession(false);
-        })
-        .catch((error) => {
-          console.error("Failed to create session:", error);
-          Alert.alert("Error", `Failed to create session: ${error.message}`);
-          setIsCreatingSession(false);
-        });
-    }
-  }, [
-    sessionId,
-    isCreatingSession,
-    createSessionMutation,
-    selectedPodcastId,
-  ]);
+  // --- Audio playback helper ---
 
-  // Helper function to play audio
   const playAudio = async (
     audioUrl: string,
     onFinished: () => void,
@@ -126,12 +244,10 @@ export function TestPodcastFlow() {
       setIsLoadingAudio(true);
       setAudioError(null);
 
-      // Stop and unload previous audio if exists
       if (soundRef.current) {
         await soundRef.current.unloadAsync();
       }
 
-      // Load and play new audio
       const { sound } = await Audio.Sound.createAsync(
         { uri: audioUrl },
         { shouldPlay: true }
@@ -141,7 +257,6 @@ export function TestPodcastFlow() {
       setIsLoadingAudio(false);
       setIsPlayingAudio(true);
 
-      // Wait for playback to finish
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded) {
           if (status.didJustFinish) {
@@ -173,13 +288,12 @@ export function TestPodcastFlow() {
     }
   };
 
-  // Handle MAIN_INTRO - play audio and transition when finished
+  // --- Auto-play effects for non-selection states ---
+
   useEffect(() => {
     if (session?.currentState === "MAIN_INTRO") {
       const key = `MAIN_INTRO-${session.currentMainBranchId}`;
-      if (audioPlayedKeyRef.current === key) {
-        return;
-      }
+      if (audioPlayedKeyRef.current === key) return;
 
       const currentMainBranch = mainBranches?.find(
         (mb) => mb._id === session.currentMainBranchId
@@ -197,7 +311,6 @@ export function TestPodcastFlow() {
           },
           (error) => {
             console.error("Audio playback error:", error);
-            // On error, still allow transition
             finishMainIntro().catch((err) => {
               console.error("Error finishing main intro:", err);
             });
@@ -213,33 +326,28 @@ export function TestPodcastFlow() {
     }
   }, [session?.currentState, session?.currentMainBranchId, mainBranches, finishMainIntro]);
 
-  // Handle SUB_PLAYING - play audio and check if we need to select more or finish
   useEffect(() => {
     if (session?.currentState === "SUB_PLAYING") {
-      const lastSelectedSub = selectedSubsForMain[selectedSubsForMain.length - 1];
+      const lastSelectedSub =
+        selectedSubsForMain[selectedSubsForMain.length - 1];
       const currentSubBranch = subBranches?.find(
         (sb) => sb._id === lastSelectedSub
       );
 
       if (currentSubBranch) {
         const key = `SUB_PLAYING-${lastSelectedSub}`;
-        if (audioPlayedKeyRef.current === key) {
-          return;
-        }
+        if (audioPlayedKeyRef.current === key) return;
         audioPlayedKeyRef.current = key;
 
         playAudio(
           currentSubBranch.audioUrl,
           () => {
-            // Check how many sub branches are selected
             if (selectedSubsForMain.length === 2) {
-              // We have 2 sub branches, finish and go back to main selection
               finishSubBranch().catch((error) => {
                 console.error("Error finishing sub branch:", error);
                 Alert.alert("Error", `Failed to finish: ${error.message}`);
               });
             } else {
-              // We have less than 2, go back to SUB_SELECTION to select more
               returnToSubSelection().catch((error) => {
                 console.error("Error returning to sub selection:", error);
                 Alert.alert("Error", `Failed to return: ${error.message}`);
@@ -248,7 +356,6 @@ export function TestPodcastFlow() {
           },
           (error) => {
             console.error("Audio playback error:", error);
-            // On error, still allow transition
             if (selectedSubsForMain.length === 2) {
               finishSubBranch().catch((err) => {
                 console.error("Error finishing sub branch:", err);
@@ -276,15 +383,11 @@ export function TestPodcastFlow() {
     returnToSubSelection,
   ]);
 
-  // Handle ACCUSATION_INTRO - play audio and transition when finished
   useEffect(() => {
     if (session?.currentState === "ACCUSATION_INTRO") {
       const key = "ACCUSATION_INTRO";
-      if (audioPlayedKeyRef.current === key) {
-        return;
-      }
+      if (audioPlayedKeyRef.current === key) return;
 
-      // Prefer dedicated accusationIntroAudioUrl if available, otherwise reuse podcast intro
       const accusationIntroUrl =
         (podcast as any)?.accusationIntroAudioUrl ?? podcast?.introAudioUrl;
 
@@ -300,14 +403,12 @@ export function TestPodcastFlow() {
           },
           (error) => {
             console.error("Audio playback error:", error);
-            // On error, still allow transition
             finishAccusationIntro().catch((err) => {
               console.error("Error finishing accusation intro:", err);
             });
           }
         );
       } else {
-        // No dedicated intro audio – just move on
         finishAccusationIntro().catch((error) => {
           console.error("Error finishing accusation intro:", error);
           Alert.alert("Error", `Failed to transition: ${error.message}`);
@@ -316,7 +417,6 @@ export function TestPodcastFlow() {
     }
   }, [session?.currentState, podcast, finishAccusationIntro]);
 
-  // Handle auto-finish when 2 sub branches are selected in SUB_SELECTION state
   useEffect(() => {
     if (
       session?.currentState === "SUB_SELECTION" &&
@@ -329,11 +429,97 @@ export function TestPodcastFlow() {
     }
   }, [session?.currentState, selectedSubsForMain.length, finishSubBranch]);
 
-  // PODCAST SELECTION state (before any session exists)
+  // Auto-proceed to accusations when max main branches selected
+  useEffect(() => {
+    if (session?.currentState !== "MAIN_SELECTION") {
+      proceedingRef.current = false;
+      return;
+    }
+    const total = mainBranches?.length ?? 0;
+    if (total === 0) return;
+    const max = Math.floor(total / 2);
+    if (session.selectedMainBranches.length >= max && !proceedingRef.current) {
+      proceedingRef.current = true;
+      proceedToAccusations().catch((error) => {
+        proceedingRef.current = false;
+        console.error("Error proceeding to accusations:", error);
+        Alert.alert("Error", `Failed to proceed: ${error.message}`);
+      });
+    }
+  }, [session?.currentState, session?.selectedMainBranches.length, mainBranches?.length, proceedToAccusations]);
+
+  // --- Session creation ---
+
+  useEffect(() => {
+    if (!sessionId && !isCreatingSession && selectedPodcastId) {
+      setIsCreatingSession(true);
+      createSessionMutation({ podcastId: selectedPodcastId })
+        .then((id) => {
+          setSessionId(id);
+          setIsCreatingSession(false);
+        })
+        .catch((error) => {
+          console.error("Failed to create session:", error);
+          Alert.alert("Error", `Failed to create session: ${error.message}`);
+          setIsCreatingSession(false);
+        });
+    }
+  }, [sessionId, isCreatingSession, createSessionMutation, selectedPodcastId]);
+
+  // --- Voice status indicator (reusable) ---
+
+  const VoiceStatus = () => {
+    if (voiceMode !== "voice") return null;
+    if (!voice.isRecording && !voice.isProcessing && !voice.lastError)
+      return null;
+
+    return (
+      <View style={styles.voiceStatus}>
+        <Text
+          style={[
+            styles.voiceStatusText,
+            voice.lastError && styles.voiceStatusError,
+          ]}
+        >
+          {voice.isProcessing
+            ? "⏳ Spracovávam hlas..."
+            : voice.isRecording
+            ? "🎙 Nahrávam... Povedz A, B alebo jedna, dva"
+            : voice.lastError}
+        </Text>
+        {voice.isRecording && (
+          <Button
+            title="Spracuj teraz"
+            onPress={voice.stopAndRecognize}
+          />
+        )}
+      </View>
+    );
+  };
+
+  // ===== RENDER =====
+
+  // PODCAST SELECTION
   if (!selectedPodcastId) {
     return (
       <ScrollView style={styles.container}>
         <Text style={styles.title}>Vyber si podcast</Text>
+        <Text style={styles.info}>
+          Režim ovládania:{" "}
+          {voiceMode === "voice" ? "Hlas + tlačidlá" : "Len tlačidlá"}
+        </Text>
+        <View style={styles.buttonContainer}>
+          <Button
+            title="Len tlačidlá"
+            onPress={() => setVoiceMode("buttons")}
+          />
+        </View>
+        <View style={styles.buttonContainer}>
+          <Button
+            title="Hlas + tlačidlá"
+            onPress={() => setVoiceMode("voice")}
+          />
+        </View>
         {podcasts === undefined ? (
           <View style={styles.center}>
             <ActivityIndicator size="large" />
@@ -351,9 +537,7 @@ export function TestPodcastFlow() {
               <View key={p._id} style={styles.buttonContainer}>
                 <Button
                   title={p.title}
-                  onPress={() => {
-                    setSelectedPodcastId(p._id);
-                  }}
+                  onPress={() => setSelectedPodcastId(p._id)}
                 />
               </View>
             ))}
@@ -363,7 +547,7 @@ export function TestPodcastFlow() {
     );
   }
 
-  // INTRO state
+  // INTRO
   if (!session || session.currentState === "INTRO") {
     return (
       <ScrollView style={styles.container}>
@@ -413,8 +597,11 @@ export function TestPodcastFlow() {
                 title="Start Investigation"
                 onPress={async () => {
                   try {
-                    if (podcast.introAudioUrl && !isLoadingAudio && !isPlayingAudio) {
-                      // Play overall podcast intro first, then transition to MAIN_SELECTION
+                    if (
+                      podcast.introAudioUrl &&
+                      !isLoadingAudio &&
+                      !isPlayingAudio
+                    ) {
                       await playAudio(
                         podcast.introAudioUrl,
                         () => {
@@ -424,7 +611,6 @@ export function TestPodcastFlow() {
                         },
                         (error) => {
                           console.error("Intro audio error:", error);
-                          // Even if intro audio fails, still allow investigation to start
                           startInvestigation().catch((err) => {
                             Alert.alert("Error", err.message);
                           });
@@ -445,16 +631,12 @@ export function TestPodcastFlow() {
     );
   }
 
-  // MAIN_SELECTION state
+  // MAIN_SELECTION
   if (session.currentState === "MAIN_SELECTION") {
-    const availableMainBranches =
-      mainBranches?.filter(
-        (mb) => !session.selectedMainBranches.includes(mb._id)
-      ) ?? [];
-
     const totalMainBranches = mainBranches?.length ?? 0;
     const maxSelectableMain = Math.floor(totalMainBranches / 2);
-    const canSelectMore = session.selectedMainBranches.length < maxSelectableMain;
+    const canSelectMore =
+      session.selectedMainBranches.length < maxSelectableMain;
 
     if (mainBranches === undefined) {
       return (
@@ -473,13 +655,14 @@ export function TestPodcastFlow() {
         <Text style={styles.info}>
           Selected: {session.selectedMainBranches.length} / {maxSelectableMain}
         </Text>
+        <VoiceStatus />
         {canSelectMore ? (
           <>
             <Text style={styles.sectionTitle}>Available Main Branches:</Text>
-            {availableMainBranches.map((branch) => (
+            {availableMainBranches.map((branch, idx) => (
               <View key={branch._id} style={styles.buttonContainer}>
                 <Button
-                  title={branch.title}
+                  title={`${String.fromCharCode(65 + idx)}: ${branch.title}`}
                   onPress={async () => {
                     try {
                       await selectMainBranch(branch._id);
@@ -492,29 +675,16 @@ export function TestPodcastFlow() {
             ))}
           </>
         ) : (
-          <View>
-            <Text style={styles.warning}>
-              Maximum main branches selected ({maxSelectableMain}).
-            </Text>
-            <View style={styles.buttonContainer}>
-              <Button
-                title="Go to Accusations"
-                onPress={async () => {
-                  try {
-                    await proceedToAccusations();
-                  } catch (error: any) {
-                    Alert.alert("Error", error.message);
-                  }
-                }}
-              />
-            </View>
+          <View style={styles.center}>
+            <ActivityIndicator size="large" />
+            <Text>Prechádzam na obvinenia...</Text>
           </View>
         )}
       </ScrollView>
     );
   }
 
-  // MAIN_INTRO state
+  // MAIN_INTRO
   if (session.currentState === "MAIN_INTRO") {
     const currentMainBranch = mainBranches?.find(
       (mb) => mb._id === session.currentMainBranchId
@@ -574,14 +744,9 @@ export function TestPodcastFlow() {
     );
   }
 
-  // SUB_SELECTION state
+  // SUB_SELECTION
   if (session.currentState === "SUB_SELECTION") {
-    const availableSubBranches =
-      subBranches?.filter(
-        (sb) => !selectedSubsForMain.includes(sb._id)
-      ) ?? [];
-
-    const mustSelect = 2; // User must always select exactly 2 sub branches
+    const mustSelect = 2;
 
     if (subBranches === undefined) {
       return (
@@ -600,14 +765,15 @@ export function TestPodcastFlow() {
         <Text style={styles.info}>
           Selected: {selectedSubsForMain.length} / {mustSelect} (required)
         </Text>
+        <VoiceStatus />
         {selectedSubsForMain.length < mustSelect ? (
           <>
             <Text style={styles.sectionTitle}>Available Sub Branches:</Text>
             {availableSubBranches.length > 0 ? (
-              availableSubBranches.map((branch) => (
+              availableSubBranches.map((branch, idx) => (
                 <View key={branch._id} style={styles.buttonContainer}>
                   <Button
-                    title={branch.title}
+                    title={`${String.fromCharCode(65 + idx)}: ${branch.title}`}
                     onPress={async () => {
                       try {
                         await selectSubBranch(branch._id);
@@ -620,7 +786,7 @@ export function TestPodcastFlow() {
               ))
             ) : (
               <Text style={styles.warning}>
-                No more sub branches available. Please select from already selected ones or contact support.
+                No more sub branches available.
               </Text>
             )}
           </>
@@ -634,9 +800,10 @@ export function TestPodcastFlow() {
     );
   }
 
-  // SUB_PLAYING state
+  // SUB_PLAYING
   if (session.currentState === "SUB_PLAYING") {
-    const lastSelectedSub = selectedSubsForMain[selectedSubsForMain.length - 1];
+    const lastSelectedSub =
+      selectedSubsForMain[selectedSubsForMain.length - 1];
     const currentSubBranch = subBranches?.find(
       (sb) => sb._id === lastSelectedSub
     );
@@ -701,7 +868,7 @@ export function TestPodcastFlow() {
     );
   }
 
-  // ACCUSATION_INTRO state
+  // ACCUSATION_INTRO
   if (session.currentState === "ACCUSATION_INTRO") {
     return (
       <ScrollView style={styles.container}>
@@ -739,7 +906,7 @@ export function TestPodcastFlow() {
     );
   }
 
-  // ACCUSATION_SELECTION state
+  // ACCUSATION_SELECTION
   if (session.currentState === "ACCUSATION_SELECTION") {
     if (accusations === undefined) {
       return (
@@ -756,14 +923,14 @@ export function TestPodcastFlow() {
       <ScrollView style={styles.container}>
         <Text style={styles.title}>Select Suspect</Text>
         <Text style={styles.sectionTitle}>Choose an accusation:</Text>
-        {accusations?.map((accusation) => (
+        <VoiceStatus />
+        {accusations?.map((accusation, idx) => (
           <View key={accusation._id} style={styles.buttonContainer}>
             <Button
-              title={accusation.suspectName}
+              title={`${String.fromCharCode(65 + idx)}: ${accusation.suspectName}`}
               onPress={async () => {
                 try {
                   const result = await selectAccusation(accusation._id);
-                  // Play result audio
                   if (result.audioUrl) {
                     playAudio(
                       result.audioUrl,
@@ -784,7 +951,6 @@ export function TestPodcastFlow() {
                       },
                       (error) => {
                         console.error("Result audio error:", error);
-                        // Show result even if audio fails
                         Alert.alert(
                           "Result",
                           `Is Correct: ${result.isCorrect ? "Yes ✅" : "No ❌"}`,
@@ -826,7 +992,7 @@ export function TestPodcastFlow() {
     );
   }
 
-  // RESULT state
+  // RESULT
   if (session.currentState === "RESULT") {
     return (
       <ScrollView style={styles.container}>
@@ -920,5 +1086,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 20,
+  },
+  voiceStatus: {
+    backgroundColor: "#f0f4ff",
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#c7d2fe",
+  },
+  voiceStatusText: {
+    fontSize: 14,
+    color: "#4338ca",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  voiceStatusError: {
+    color: "#dc2626",
   },
 });

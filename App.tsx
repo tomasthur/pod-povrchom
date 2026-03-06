@@ -15,8 +15,15 @@ import { stories } from './stories';
 // DEV ONLY - Debug screen for testing podcast engine (expo-av audio)
 import { TestPodcastFlow } from './components/TestPodcastFlow';
 
-// Initialize Convex client
-const CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL || 'https://warmhearted-snake-507.eu-west-1.convex.cloud';
+// Initialize Convex client – MUST be provided via env, no dev fallback
+const CONVEX_URL = process.env.EXPO_PUBLIC_CONVEX_URL;
+
+if (!CONVEX_URL) {
+  throw new Error(
+    'Missing EXPO_PUBLIC_CONVEX_URL. Set it to your production or desired Convex deployment URL.'
+  );
+}
+
 const convex = new ConvexReactClient(CONVEX_URL);
 
 type InteractionMode = 'touch' | 'voice';
